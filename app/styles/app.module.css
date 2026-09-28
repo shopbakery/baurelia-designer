@@ -1,0 +1,81 @@
+.appContent {
+  min-height: 160px;
+}
+
+.loadingLayer {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgb(255 255 255 / 18%);
+}
+
+.loadingBar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  background: #e6ddf2;
+}
+
+.loadingBar::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 38%;
+  border-radius: 999px;
+  background: #6d3f8f;
+  animation: loading-bar 1s ease-in-out infinite;
+}
+
+.loadingNotice {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  border: 1px solid rgb(0 0 0 / 8%);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+  color: #303030;
+  font-size: 13px;
+  font-weight: 600;
+  transform: translateX(-50%);
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid #d8c9e5;
+  border-top-color: #6d3f8f;
+  border-radius: 50%;
+  animation: spinner 700ms linear infinite;
+}
+
+@keyframes loading-bar {
+  from {
+    transform: translateX(-105%);
+  }
+
+  to {
+    transform: translateX(365%);
+  }
+}
+
+@keyframes spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingBar::after,
+  .spinner {
+    animation-duration: 1.8s;
+  }
+}

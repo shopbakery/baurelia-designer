@@ -2,11 +2,13 @@ import {
   Outlet,
   useLoaderData,
   useNavigate,
+  useNavigation,
   useRouteError,
 } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import styles from "../styles/app.module.css";
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
@@ -18,6 +20,8 @@ export const loader = async ({ request }) => {
 export default function App() {
   const { apiKey } = useLoaderData();
   const navigate = useNavigate();
+  const navigation = useNavigation();
+  const isLoading = navigation.state !== "idle";
   const navigateInsideApp = (path) => (event) => {
     event.preventDefault();
     navigate(path);
@@ -32,7 +36,18 @@ export default function App() {
         <s-link href="/app/colors" onClick={navigateInsideApp("/app/colors")}>Farben</s-link>
         <s-link href="/app/fonts" onClick={navigateInsideApp("/app/fonts")}>Schriften</s-link>
       </s-app-nav>
-      <Outlet />
+      <div className={styles.appContent} aria-busy={isLoading}>
+        {isLoading && (
+          <div className={styles.loadingLayer} role="status" aria-live="polite">
+            <div className={styles.loadingBar}></div>
+            <div className={styles.loadingNotice}>
+              <span className={styles.spinner} aria-hidden="true"></span>
+              <span>Inhalt wird geladen …</span>
+            </div>
+          </div>
+        )}
+        <Outlet />
+      </div>
     </AppProvider>
   );
 }
