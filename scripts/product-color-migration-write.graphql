@@ -1,0 +1,15 @@
+mutation MigrateProductColors($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) {
+    metafields {
+      id
+      namespace
+      key
+      jsonValue
+    }
+    userErrors {
+      field
+      message
+      code
+    }
+  }
+}

@@ -1,0 +1,11 @@
+query ProductColorMigrationColorDefinition($id: ID!) {
+  metaobjectDefinition(id: $id) {
+    id
+    name
+    type
+    fieldDefinitions {
+      key
+      name
+    }
+  }
+}
