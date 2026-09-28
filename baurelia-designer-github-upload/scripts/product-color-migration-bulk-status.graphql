@@ -1,0 +1,9 @@
+query ProductColorMigrationBulkStatus($id: ID!) {
+  bulkOperation(id: $id) {
+    id
+    status
+    errorCode
+    objectCount
+    url
+  }
+}
