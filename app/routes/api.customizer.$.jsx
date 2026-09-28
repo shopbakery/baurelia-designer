@@ -8,7 +8,10 @@ const json = (data, status = 200) =>
   Response.json(data, {
     status,
     headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control":
+        status >= 400
+          ? "no-store, no-cache, must-revalidate"
+          : "private, max-age=60, stale-while-revalidate=300",
     },
   });
 
