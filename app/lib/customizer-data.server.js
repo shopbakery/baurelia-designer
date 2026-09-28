@@ -68,6 +68,27 @@ const LIST_METAOBJECTS = `#graphql
   }
 `;
 
+const LIST_MOTIF_CATEGORY_HANDLES = `#graphql
+  query BaureliaListMotifCategoryHandles($first: Int!, $after: String) {
+    metaobjects(
+      type: "$app:motif"
+      first: $first
+      after: $after
+      sortKey: "id"
+    ) {
+      nodes {
+        categoryHandle: field(key: "category_handle") {
+          jsonValue
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
 const UPSERT_METAOBJECT = `#graphql
   mutation BaureliaUpsertMetaobject(
     $handle: MetaobjectHandleInput!
@@ -172,6 +193,30 @@ export async function listAllMetaobjects(admin, resource, query = null) {
   } while (after);
 
   return items;
+}
+
+export async function countMotifsByCategory(admin) {
+  const counts = {};
+  let after = null;
+
+  do {
+    const response = await admin.graphql(LIST_MOTIF_CATEGORY_HANDLES, {
+      variables: { first: 250, after },
+    });
+    const payload = await response.json();
+    throwGraphqlErrors(payload);
+    const connection = payload.data.metaobjects;
+
+    for (const node of connection.nodes) {
+      const handle = String(node.categoryHandle?.jsonValue || "");
+      if (handle) counts[handle] = (counts[handle] || 0) + 1;
+    }
+    after = connection.pageInfo.hasNextPage
+      ? connection.pageInfo.endCursor
+      : null;
+  } while (after);
+
+  return counts;
 }
 
 export async function upsertMetaobject(admin, resource, handle, values) {

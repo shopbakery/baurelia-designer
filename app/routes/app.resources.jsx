@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
 import {
+  Form,
   redirect,
   useActionData,
   useLoaderData,
@@ -9,6 +10,7 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
+  countMotifsByCategory,
   RESOURCE_TYPES,
   deleteMetaobject,
   importLegacyBatch,
@@ -249,9 +251,9 @@ export const loader = async ({ request }) => {
   let categoryMotifCounts = {};
 
   if (resource === "categories") {
-    const [allCategories, motifs] = await Promise.all([
+    const [allCategories, motifCounts] = await Promise.all([
       listAllMetaobjects(admin, "categories"),
-      listAllMetaobjects(admin, "motifs"),
+      countMotifsByCategory(admin),
     ]);
     const orderedCategories = await normalizeCategorySortOrder(
       admin,
@@ -261,11 +263,7 @@ export const loader = async ({ request }) => {
       items: orderedCategories,
       pageInfo: { hasNextPage: false, endCursor: null },
     };
-    categoryMotifCounts = motifs.reduce((counts, motif) => {
-      const handle = String(motif.category_handle || "");
-      if (handle) counts[handle] = (counts[handle] || 0) + 1;
-      return counts;
-    }, {});
+    categoryMotifCounts = motifCounts;
   } else {
     [page, categories] = await Promise.all([
       listMetaobjects(admin, resource, { first: 100, query }),
@@ -451,7 +449,7 @@ export const action = async ({ request }) => {
 
 function ResourceForm({ resource, categories }) {
   return (
-    <form method="post">
+    <Form method="post">
       <input type="hidden" name="intent" value="upsert" />
       <input type="hidden" name="resource" value={resource} />
       <s-stack direction="block" gap="base">
@@ -519,7 +517,7 @@ function ResourceForm({ resource, categories }) {
         <input type="hidden" name="active" value="true" />
         <s-button type="submit" variant="primary">Speichern</s-button>
       </s-stack>
-    </form>
+    </Form>
   );
 }
 
@@ -710,14 +708,14 @@ function ColorGrid({ items, canReorder }) {
                     >
                       Speichern
                     </s-button>
-                    <form method="post">
+                    <Form method="post">
                       <input type="hidden" name="intent" value="delete" />
                       <input type="hidden" name="resource" value="colors" />
                       <input type="hidden" name="id" value={color.id} />
                       <s-button type="submit" tone="critical" variant="tertiary">
                         Löschen
                       </s-button>
-                    </form>
+                    </Form>
                   </div>
                 </div>
               </div>
@@ -803,7 +801,7 @@ function FontLibrary({ items }) {
                   >
                     Bearbeiten
                   </s-button>
-                  <form method="post">
+                  <Form method="post">
                     <input type="hidden" name="intent" value="toggle-active" />
                     <input type="hidden" name="resource" value="fonts" />
                     <input type="hidden" name="handle" value={font.handle} />
@@ -819,9 +817,9 @@ function FontLibrary({ items }) {
                     >
                       {font.active === false ? "Aktivieren" : "Deaktivieren"}
                     </s-button>
-                  </form>
+                  </Form>
                 </div>
-                <form method="post">
+                <Form method="post">
                   <s-modal
                     id={modalId}
                     heading="Schrift bearbeiten"
@@ -911,7 +909,7 @@ function FontLibrary({ items }) {
                       Änderungen speichern
                     </s-button>
                   </s-modal>
-                </form>
+                </Form>
               </div>
             </article>
           );
@@ -959,7 +957,7 @@ function ResourceTable({ resource, items, categoryMotifCounts = {} }) {
               </s-badge>
             </s-table-cell>
             <s-table-cell>
-              <form method="post">
+              <Form method="post">
                 <input type="hidden" name="intent" value="delete" />
                 <input type="hidden" name="resource" value={resource} />
                 <input type="hidden" name="id" value={item.id} />
@@ -995,7 +993,7 @@ function ResourceTable({ resource, items, categoryMotifCounts = {} }) {
                       : "Löschen"}
                   </s-button>
                 </div>
-              </form>
+              </Form>
             </s-table-cell>
           </s-table-row>
         ))}
