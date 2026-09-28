@@ -11,12 +11,22 @@ const wait = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const categoryValues = (category) => ({
-  name: category.name,
-  slug: category.slug,
+  name: category.name || category.displayName,
+  slug: category.slug || category.handle,
   description: category.description,
-  sort_order: category.sortOrder,
-  active: category.active,
+  sort_order: Number(category.sort_order ?? category.sortOrder ?? 0),
+  active: category.active !== false,
 });
+
+export const sortCategoriesAlphabetically = (categories) =>
+  [...categories].sort(
+    (left, right) =>
+      String(left.name || left.displayName || "").localeCompare(
+        String(right.name || right.displayName || ""),
+        "de",
+        { sensitivity: "base", numeric: true },
+      ) || String(left.handle).localeCompare(String(right.handle), "de"),
+  );
 
 export const RESOURCE_TYPES = {
   categories: "$app:motif_category",
@@ -203,6 +213,64 @@ export async function deleteMetaobject(admin, id) {
   return payload.data.metaobjectDelete.deletedId;
 }
 
+export async function normalizeCategorySortOrder(admin, categories = null) {
+  const ordered = sortCategoriesAlphabetically(
+    categories || (await listAllMetaobjects(admin, "categories")),
+  );
+
+  for (const [index, category] of ordered.entries()) {
+    const sortOrder = index + 1;
+    if (Number(category.sort_order) === sortOrder) continue;
+    await upsertMetaobject(admin, "categories", category.handle, {
+      ...categoryValues(category),
+      sort_order: sortOrder,
+    });
+    category.sort_order = sortOrder;
+  }
+
+  return ordered;
+}
+
+const motifValues = (motif, overrides = {}) => ({
+  name: motif.name || motif.displayName,
+  slug: motif.slug || motif.handle,
+  category: motif.category,
+  category_handle: motif.category_handle,
+  image_url: motif.image_url,
+  thumbnail_url: motif.thumbnail_url,
+  r2_key: motif.r2_key,
+  original_filename: motif.original_filename,
+  alt_text: motif.alt_text || motif.name || motif.displayName,
+  sort_order: Number(motif.sort_order || 0),
+  active: motif.active !== false,
+  ...overrides,
+});
+
+export async function moveCategoryMotifs(
+  admin,
+  sourceHandle,
+  targetCategory,
+  motifs = null,
+) {
+  const assignedMotifs =
+    motifs ||
+    (await listAllMetaobjects(
+      admin,
+      "motifs",
+      `fields.category_handle:${sourceHandle}`,
+    ));
+
+  for (const motif of assignedMotifs) {
+    await upsertMetaobject(admin, "motifs", motif.handle, {
+      ...motifValues(motif),
+      category: targetCategory.id,
+      category_handle: targetCategory.handle,
+    });
+  }
+
+  return assignedMotifs.length;
+}
+
 export function getLegacyCatalog() {
   return legacyCatalog;
 }
@@ -229,7 +297,9 @@ export async function getPublicBootstrap(admin) {
 
   return {
     source: "shopify",
-    categories: categories.filter((item) => item.active !== false),
+    categories: sortCategoriesAlphabetically(
+      categories.filter((item) => item.active !== false),
+    ),
     colors: colors.filter((item) => item.active !== false),
     fonts: fonts.filter((item) => item.active !== false),
   };

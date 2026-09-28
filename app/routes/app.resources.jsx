@@ -15,6 +15,9 @@ import {
   legacyItemsFor,
   listAllMetaobjects,
   listMetaobjects,
+  moveCategoryMotifs,
+  normalizeCategorySortOrder,
+  sortCategoriesAlphabetically,
   upsertMetaobject,
 } from "../lib/customizer-data.server";
 import styles from "../styles/resources.module.css";
@@ -241,10 +244,35 @@ export const loader = async ({ request }) => {
     resource === "motifs" && category
       ? `fields.category_handle:${category}`
       : null;
-  const [page, categories] = await Promise.all([
-    listMetaobjects(admin, resource, { first: 100, query }),
-    resource === "motifs" ? listAllMetaobjects(admin, "categories") : [],
-  ]);
+  let page;
+  let categories = [];
+  let categoryMotifCounts = {};
+
+  if (resource === "categories") {
+    const [allCategories, motifs] = await Promise.all([
+      listAllMetaobjects(admin, "categories"),
+      listAllMetaobjects(admin, "motifs"),
+    ]);
+    const orderedCategories = await normalizeCategorySortOrder(
+      admin,
+      allCategories,
+    );
+    page = {
+      items: orderedCategories,
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
+    categoryMotifCounts = motifs.reduce((counts, motif) => {
+      const handle = String(motif.category_handle || "");
+      if (handle) counts[handle] = (counts[handle] || 0) + 1;
+      return counts;
+    }, {});
+  } else {
+    [page, categories] = await Promise.all([
+      listMetaobjects(admin, resource, { first: 100, query }),
+      resource === "motifs" ? listAllMetaobjects(admin, "categories") : [],
+    ]);
+    categories = sortCategoriesAlphabetically(categories);
+  }
 
   return {
     resource,
@@ -254,6 +282,7 @@ export const loader = async ({ request }) => {
         : page.items,
     pageInfo: page.pageInfo,
     categories,
+    categoryMotifCounts,
     legacyTotal: legacyItemsFor(resource).length,
     category,
     resumeOffset,
@@ -272,6 +301,55 @@ export const action = async ({ request }) => {
 
   try {
     if (intent === "delete") {
+      if (resource === "categories") {
+        const id = required(formData, "id");
+        const handle = required(formData, "handle");
+        const replacementHandle = String(
+          formData.get("replacementHandle") || "",
+        ).trim();
+        const [categories, assignedMotifs] = await Promise.all([
+          listAllMetaobjects(admin, "categories"),
+          listAllMetaobjects(
+            admin,
+            "motifs",
+            `fields.category_handle:${handle}`,
+          ),
+        ]);
+
+        let movedCount = 0;
+        if (assignedMotifs.length) {
+          const replacement = categories.find(
+            (category) => category.handle === replacementHandle,
+          );
+          if (!replacement || replacement.handle === handle) {
+            throw new Error(
+              `Die Kategorie enthält ${assignedMotifs.length} ${
+                assignedMotifs.length === 1 ? "Motiv" : "Motive"
+              }. Wähle zuerst eine Zielkategorie zum Verschieben aus.`,
+            );
+          }
+          movedCount = await moveCategoryMotifs(
+            admin,
+            handle,
+            replacement,
+            assignedMotifs,
+          );
+        }
+
+        await deleteMetaobject(admin, id);
+        await normalizeCategorySortOrder(
+          admin,
+          categories.filter((category) => category.id !== id),
+        );
+        return {
+          ok: true,
+          message: movedCount
+            ? `Kategorie gelöscht und ${movedCount} ${
+                movedCount === 1 ? "Motiv" : "Motive"
+              } verschoben.`
+            : "Kategorie gelöscht.",
+        };
+      }
       await deleteMetaobject(admin, required(formData, "id"));
       return { ok: true, message: "Eintrag gelöscht." };
     }
@@ -349,6 +427,15 @@ export const action = async ({ request }) => {
     const handle = String(formData.get("handle") || "").trim() || slugify(values.slug);
     const item = await upsertMetaobject(admin, resource, handle, values);
 
+    if (resource === "categories") {
+      await normalizeCategorySortOrder(admin);
+      return {
+        ok: true,
+        item,
+        message: "Kategorie gespeichert und alphabetisch eingeordnet.",
+      };
+    }
+
     return { ok: true, item, message: "Eintrag gespeichert." };
   } catch (error) {
     return Response.json(
@@ -424,7 +511,11 @@ function ResourceForm({ resource, categories }) {
           </>
         )}
 
-        <s-number-field label="Reihenfolge" name="sortOrder" value="0" min="0"></s-number-field>
+        {resource === "categories" ? (
+          <input type="hidden" name="sortOrder" value="0" />
+        ) : (
+          <s-number-field label="Reihenfolge" name="sortOrder" value="0" min="0"></s-number-field>
+        )}
         <input type="hidden" name="active" value="true" />
         <s-button type="submit" variant="primary">Speichern</s-button>
       </s-stack>
@@ -830,7 +921,7 @@ function FontLibrary({ items }) {
   );
 }
 
-function ResourceTable({ resource, items }) {
+function ResourceTable({ resource, items, categoryMotifCounts = {} }) {
   if (!items.length) {
     return <s-paragraph>Noch keine Shopify-Metaobjekte vorhanden.</s-paragraph>;
   }
@@ -840,7 +931,12 @@ function ResourceTable({ resource, items }) {
       <s-table-header-row>
         <s-table-header listSlot="primary">Name</s-table-header>
         <s-table-header listSlot="labeled">Handle</s-table-header>
-        <s-table-header listSlot="labeled">Reihenfolge</s-table-header>
+        {resource !== "categories" && (
+          <s-table-header listSlot="labeled">Reihenfolge</s-table-header>
+        )}
+        {resource === "categories" && (
+          <s-table-header listSlot="labeled">Motive</s-table-header>
+        )}
         <s-table-header listSlot="labeled">Status</s-table-header>
         <s-table-header listSlot="labeled">Aktion</s-table-header>
       </s-table-header-row>
@@ -849,7 +945,14 @@ function ResourceTable({ resource, items }) {
           <s-table-row key={item.id}>
             <s-table-cell>{item.name || item.displayName}</s-table-cell>
             <s-table-cell>{item.handle}</s-table-cell>
-            <s-table-cell>{String(item.sort_order ?? 0)}</s-table-cell>
+            {resource !== "categories" && (
+              <s-table-cell>{String(item.sort_order ?? 0)}</s-table-cell>
+            )}
+            {resource === "categories" && (
+              <s-table-cell>
+                {String(categoryMotifCounts[item.handle] || 0)}
+              </s-table-cell>
+            )}
             <s-table-cell>
               <s-badge tone={item.active === false ? "critical" : "success"}>
                 {item.active === false ? "Inaktiv" : "Aktiv"}
@@ -860,9 +963,38 @@ function ResourceTable({ resource, items }) {
                 <input type="hidden" name="intent" value="delete" />
                 <input type="hidden" name="resource" value={resource} />
                 <input type="hidden" name="id" value={item.id} />
-                <s-button type="submit" tone="critical" variant="tertiary">
-                  Löschen
-                </s-button>
+                {resource === "categories" && (
+                  <input type="hidden" name="handle" value={item.handle} />
+                )}
+                <div className={styles.categoryDeleteActions}>
+                  {resource === "categories" &&
+                    Number(categoryMotifCounts[item.handle] || 0) > 0 && (
+                      <s-select
+                        label="Motive verschieben nach"
+                        labelAccessibilityVisibility="exclusive"
+                        name="replacementHandle"
+                        required
+                      >
+                        <s-option value="">Zielkategorie wählen</s-option>
+                        {items
+                          .filter((category) => category.handle !== item.handle)
+                          .map((category) => (
+                            <s-option
+                              key={category.id}
+                              value={category.handle}
+                            >
+                              {category.name || category.displayName}
+                            </s-option>
+                          ))}
+                      </s-select>
+                    )}
+                  <s-button type="submit" tone="critical" variant="tertiary">
+                    {resource === "categories" &&
+                    Number(categoryMotifCounts[item.handle] || 0) > 0
+                      ? "Verschieben & löschen"
+                      : "Löschen"}
+                  </s-button>
+                </div>
               </form>
             </s-table-cell>
           </s-table-row>
@@ -925,7 +1057,11 @@ export default function Resources() {
         ) : loaderData.resource === "fonts" ? (
           <FontLibrary items={loaderData.items} />
         ) : (
-          <ResourceTable resource={loaderData.resource} items={loaderData.items} />
+          <ResourceTable
+            resource={loaderData.resource}
+            items={loaderData.items}
+            categoryMotifCounts={loaderData.categoryMotifCounts}
+          />
         )}
         {loaderData.pageInfo.hasNextPage && (
           <s-banner heading="Weitere Einträge vorhanden" tone="info">

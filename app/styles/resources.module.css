@@ -73,6 +73,14 @@
   gap: 4px;
 }
 
+.categoryDeleteActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 280px;
+}
+
 .dragHandle {
   cursor: grab;
   user-select: none;
@@ -174,5 +182,11 @@
   .fontActions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .categoryDeleteActions {
+    align-items: stretch;
+    flex-direction: column;
+    min-width: 0;
   }
 }
