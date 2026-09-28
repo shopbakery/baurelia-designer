@@ -1,9 +1,0 @@
-query ProductColorMigrationCurrentBulk {
-  currentBulkOperation(type: QUERY) {
-    id
-    status
-    errorCode
-    objectCount
-    url
-  }
-}
