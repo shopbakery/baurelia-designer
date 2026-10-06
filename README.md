@@ -90,7 +90,7 @@ R2_ACCOUNT_ID=...
 R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET_NAME=...
-R2_PUBLIC_URL=https://DEINE-R2-DOMAIN
+R2_PUBLIC_URL=https://media.baurelia.ch
 ```
 
 `PORT` wird von Railway automatisch gesetzt. Geheimnisse ausschließlich als
@@ -119,9 +119,24 @@ Die `client_id` in `shopify.app.toml` gehört zur bestehenden App
 
 ## Cloudflare R2
 
-Die CORS-Regeln des R2-Buckets müssen die endgültige Railway-Domain als Origin
-für die Browser-Uploads erlauben. Benötigt werden mindestens `PUT` und der
-Header `Content-Type`. Die öffentliche R2-Domain bleibt unverändert.
+Im neuen R2-Bucket `baurelia-motive` müssen CORS-Regeln für zwei getrennte
+Browser-Zugriffe eingerichtet und anschließend live getestet werden:
+
+- Upload aus der App: die endgültige Railway-Domain als Origin, Methode `PUT`,
+  Header `Content-Type`.
+- Motiv-Vorschau im Shop: `https://www.baurelia.ch` und, falls verwendet,
+  `https://baurelia.ch` als Origins, Methoden `GET` und `HEAD`. Der neue
+  Customizer liest die Bilddatei mit `fetch()`; ein bloß sichtbares `<img>`
+  beweist noch nicht, dass die Vorschau funktioniert.
+
+Nach vollständiger Bucket-Migration `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME=baurelia-motive` und
+`R2_PUBLIC_URL=https://media.baurelia.ch` gemeinsam in Railway umstellen.
+Die App leitet bekannte ältere Motiv-URLs des bisherigen `r2.dev`-Buckets
+bei der Ausgabe auf die neue Domain um. Diese Umschreibung ersetzt keine
+Prüfung, ob wirklich alle Objekte mit demselben Schlüssel im neuen Bucket
+vorhanden sind. Den alten Bucket erst nach dieser Prüfung und einem
+erfolgreichen Live-Test außer Betrieb nehmen.
 
 ## Produktionsprüfung
 
@@ -130,6 +145,10 @@ Vor dem Livegang prüfen:
 - `https://DEINE-DOMAIN.up.railway.app/health` antwortet mit HTTP 200.
 - Die App öffnet sich eingebettet im Baurelia-Shopify-Admin.
 - Motiv-Upload nach R2 funktioniert.
+- Ein bestehendes sowie ein neu hochgeladenes Motiv zeigen Vorschaubild **und**
+  große Vorschau im neuen Customizer; Browser-Konsole ohne CORS-Fehler.
+- Automatische Benennung nach Dateiname und fortlaufende Anzeige je Kategorie
+  nach einem Upload und nach dem Löschen kontrollieren.
 - Motiv löschen und Drag-and-drop-Sortierung funktionieren.
 - Farben und Schriften lassen sich speichern, sortieren und deaktivieren.
 - Der Storefront-App-Proxy `/apps/baurelia-designer/bootstrap` liefert Daten.

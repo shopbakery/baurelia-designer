@@ -8,6 +8,7 @@ import {
   deleteMotifObject,
   motifKeyFromPublicUrl,
 } from "../lib/r2.server";
+import { findSharedMotifReferences } from "../lib/motif-records";
 
 const motifValues = (motif, sortOrder = motif.sort_order) => ({
   name: motif.name || motif.displayName,
@@ -102,26 +103,34 @@ export const action = async ({ request }) => {
 
     if (intent === "delete") {
       const handle = String(formData.get("handle") || "").trim();
-      const matches = await listAllMetaobjects(
-        admin,
-        "motifs",
-        `handle:${handle}`,
-      );
-      const motif = matches.find((item) => item.handle === handle);
+      const motifs = await listAllMetaobjects(admin, "motifs");
+      const motif = motifs.find((item) => item.handle === handle);
       if (!motif) throw new Error("Das Motiv wurde nicht gefunden.");
 
+      const storageKeyForMotif = (item) =>
+        item.r2_key || motifKeyFromPublicUrl(item.image_url);
+      const r2Key = storageKeyForMotif(motif);
       await deleteMetaobject(admin, motif.id);
 
       let warning = "";
-      if (formData.get("deleteFile") === "true") {
-        const r2Key = motif.r2_key || motifKeyFromPublicUrl(motif.image_url);
-        if (!r2Key) {
-          warning = "Der Shopify-Eintrag wurde gelöscht, aber für die R2-Datei ist kein Schlüssel gespeichert.";
+      if (!r2Key) {
+        warning =
+          "Der Shopify-Eintrag wurde gelöscht, aber für die R2-Datei ist kein Schlüssel gespeichert.";
+      } else {
+        const sharedReferences = findSharedMotifReferences(
+          motifs,
+          motif.id,
+          r2Key,
+          storageKeyForMotif,
+        );
+        if (sharedReferences.length) {
+          warning = `Der Shopify-Eintrag wurde gelöscht. Die R2-Datei bleibt erhalten, weil sie noch von ${sharedReferences.length} weiteren Motiv(en) verwendet wird.`;
         } else {
           try {
             await deleteMotifObject(r2Key);
           } catch {
-            warning = "Der Shopify-Eintrag wurde gelöscht, die R2-Datei konnte jedoch nicht entfernt werden.";
+            warning =
+              "Der Shopify-Eintrag wurde gelöscht, die R2-Datei konnte jedoch nicht entfernt werden.";
           }
         }
       }
@@ -133,7 +142,10 @@ export const action = async ({ request }) => {
   } catch (error) {
     if (error instanceof Response) return error;
     return Response.json(
-      { error: error instanceof Error ? error.message : "Die Aktion ist fehlgeschlagen." },
+      {
+        error:
+          error instanceof Error ? error.message : "Die Aktion ist fehlgeschlagen.",
+      },
       { status: 400 },
     );
   }

@@ -13,6 +13,8 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/webp",
 ]);
+const LEGACY_MOTIF_PUBLIC_URL =
+  "https://pub-049e86916f8f447aab9e07fd4144ab91.r2.dev";
 
 const requiredEnv = (key) => {
   const value = process.env[key]?.trim();
@@ -130,28 +132,72 @@ export async function deleteMotifObject(key) {
 
 export function motifKeyFromPublicUrl(imageUrl) {
   try {
-    const publicRoot = new URL(`${config().publicUrl}/`);
     const candidate = new URL(imageUrl);
-    if (
-      candidate.origin !== publicRoot.origin ||
-      !candidate.pathname.startsWith(publicRoot.pathname)
-    ) {
-      return "";
+    const publicRoots = [
+      requiredEnv("R2_PUBLIC_URL"),
+      LEGACY_MOTIF_PUBLIC_URL,
+    ];
+    for (const publicUrl of publicRoots) {
+      const publicRoot = new URL(`${publicUrl.replace(/\/+$/, "")}/`);
+      if (
+        candidate.origin !== publicRoot.origin ||
+        !candidate.pathname.startsWith(publicRoot.pathname)
+      ) {
+        continue;
+      }
+      const encodedKey = candidate.pathname.slice(publicRoot.pathname.length);
+      const key = encodedKey
+        .split("/")
+        .map((part) => decodeURIComponent(part))
+        .join("/");
+      assertSafeObjectKey(key);
+      return key;
     }
-    const encodedKey = candidate.pathname.slice(publicRoot.pathname.length);
-    const key = encodedKey
-      .split("/")
-      .map((part) => decodeURIComponent(part))
-      .join("/");
-    assertSafeObjectKey(key);
-    return key;
+    return "";
   } catch {
     return "";
   }
 }
 
+export function motifWithCurrentPublicUrls(motif) {
+  const imageField = motif.image_url ? "image_url" : "imageUrl";
+  const thumbnailField = motif.thumbnail_url ? "thumbnail_url" : "thumbnailUrl";
+  const imageUrl = motif[imageField];
+  const key = motif.r2_key || motifKeyFromPublicUrl(imageUrl);
+  if (!key || !imageUrl) return motif;
+
+  const currentImageUrl = r2PublicUrl(key);
+  const existingThumbnailUrl = String(motif[thumbnailField] || "");
+  if (
+    currentImageUrl === imageUrl &&
+    !existingThumbnailUrl.includes(LEGACY_MOTIF_PUBLIC_URL.slice(8))
+  ) {
+    return motif;
+  }
+
+  let thumbnailUrl = currentImageUrl;
+  try {
+    const thumbnail = new URL(existingThumbnailUrl);
+    if (thumbnail.hostname === "images.weserv.nl") {
+      thumbnail.searchParams.set(
+        "url",
+        currentImageUrl.replace(/^https?:\/\//, ""),
+      );
+      thumbnailUrl = thumbnail.toString();
+    }
+  } catch {
+    // A missing thumbnail can use the public original image instead.
+  }
+
+  return {
+    ...motif,
+    [imageField]: currentImageUrl,
+    [thumbnailField]: thumbnailUrl,
+  };
+}
+
 export function r2PublicUrl(key) {
-  const { publicUrl } = config();
+  const publicUrl = requiredEnv("R2_PUBLIC_URL").replace(/\/+$/, "");
   const encodedKey = key
     .split("/")
     .map((part) => encodeURIComponent(part))

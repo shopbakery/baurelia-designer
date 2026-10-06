@@ -20,13 +20,15 @@ export const motifOriginalFilename = (motif = {}) =>
 export const motifDisplayLabel = (
   motif,
   categoryName,
-  fallbackPosition = 1,
+  positionOverride = null,
 ) => {
   const storedPosition = Number(motif?.sort_order ?? motif?.sortOrder);
   const position =
-    Number.isInteger(storedPosition) && storedPosition > 0
+    Number.isInteger(positionOverride) && positionOverride > 0
+      ? positionOverride
+      : Number.isInteger(storedPosition) && storedPosition > 0
       ? storedPosition
-      : fallbackPosition;
+      : 1;
   const prefix = categoryName || motif?.category_handle || "Motiv";
   return `${prefix} ${position}`;
 };

@@ -13,7 +13,11 @@ import {
   motifDisplayLabel,
   motifOriginalFilename,
 } from "../lib/motif-labels";
-import { motifKeyFromPublicUrl } from "../lib/r2.server";
+import { motifNameFromFileName } from "../lib/motif-records";
+import {
+  motifKeyFromPublicUrl,
+  motifWithCurrentPublicUrls,
+} from "../lib/r2.server";
 import styles from "../styles/motifs.module.css";
 
 const PAGE_SIZE = 48;
@@ -25,14 +29,6 @@ const normalized = (value) =>
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-
-const nameFromFile = (fileName) =>
-  fileName
-    .replace(/\.[^.]+$/, "")
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 const byStoredOrder = (left, right) =>
   Number(left.sort_order || 0) - Number(right.sort_order || 0) ||
@@ -67,17 +63,25 @@ export const loader = async ({ request }) => {
   const categoryNames = new Map(
     categories.map((item) => [item.handle, item.name || item.displayName]),
   );
+  const positionByCategory = new Map();
   const preparedMotifs = [...motifs]
     .sort(byStoredOrder)
-    .map((motif, index) => ({
-      ...motif,
-      display_label: motifDisplayLabel(
-        motif,
-        categoryNames.get(motif.category_handle),
-        index + 1,
-      ),
-      original_filename: motifOriginalFilename(motif),
-    }));
+    .map((motif) => {
+      const categoryHandle = motif.category_handle;
+      const position = (positionByCategory.get(categoryHandle) || 0) + 1;
+      if (motif.active !== false) {
+        positionByCategory.set(categoryHandle, position);
+      }
+      return {
+        ...motifWithCurrentPublicUrls(motif),
+        display_label: motifDisplayLabel(
+          motif,
+          categoryNames.get(categoryHandle),
+          motif.active !== false ? position : null,
+        ),
+        original_filename: motifOriginalFilename(motif),
+      };
+    });
   const searchTerm = normalized(query);
   const filtered = preparedMotifs
     .filter((motif) => {
@@ -186,7 +190,7 @@ const putFile = (uploadUrl, file, onProgress) =>
     request.send(file);
   });
 
-function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
+function UploadModal({ categories, initialCategory, multiple, onUploaded, onFinished }) {
   const shopify = useAppBridge();
   const [files, setFiles] = useState([]);
   const [categoryHandle, setCategoryHandle] = useState(
@@ -227,7 +231,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
     setError("");
     setFiles(accepted);
     if (accepted.length === 1) {
-      const suggestedName = nameFromFile(accepted[0].name);
+      const suggestedName = motifNameFromFileName(accepted[0].name);
       setAltText(suggestedName);
     }
   };
@@ -256,7 +260,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
     let completedCount = 0;
     try {
       for (const [index, file] of files.entries()) {
-        const itemName = nameFromFile(file.name);
+        const itemName = motifNameFromFileName(file.name);
         const prepared = await postUploadAction(shopify, {
           intent: "prepare",
           fileName: file.name,
@@ -288,6 +292,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
       );
       reset();
       document.getElementById("motif-upload-modal")?.hideOverlay();
+      onFinished();
     } catch (uploadError) {
       if (files.length > 1 && completedCount > 0) {
         setFiles((currentFiles) => currentFiles.slice(completedCount));
@@ -295,6 +300,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
         setError(
           `${completedCount} Datei(en) wurden gespeichert. Die übrigen Dateien wurden nicht hochgeladen: ${uploadError.message}`,
         );
+        onFinished();
       } else {
         setError(uploadError.message);
       }
@@ -403,12 +409,10 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
 
 function DeleteModal({ motif, onDeleted }) {
   const shopify = useAppBridge();
-  const [deleteFile, setDeleteFile] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setDeleteFile(false);
     setError("");
   }, [motif]);
 
@@ -420,7 +424,6 @@ function DeleteModal({ motif, onDeleted }) {
       const result = await postMotifAction(shopify, {
         intent: "delete",
         handle: motif.handle,
-        deleteFile,
       });
       shopify.toast.show(
         result.warning || `${motif.display_label || motif.name || motif.displayName} wurde gelöscht.`,
@@ -443,20 +446,15 @@ function DeleteModal({ motif, onDeleted }) {
     >
       <s-stack direction="block" gap="base">
         <s-text>
-          Das Motiv wird aus Shopify entfernt und erscheint danach nicht mehr im
-          Customizer. Diese Aktion kann nicht rückgängig gemacht werden.
+          Das Motiv wird aus Shopify entfernt. Die zugehörige Bilddatei wird
+          automatisch aus Cloudflare R2 gelöscht, sobald sie von keinem anderen
+          Motiv mehr verwendet wird. Diese Aktion kann nicht rückgängig gemacht
+          werden.
         </s-text>
-        {motif?.canDeleteR2 ? (
-          <s-checkbox
-            label="Bilddatei ebenfalls dauerhaft aus Cloudflare R2 löschen"
-            checked={deleteFile}
-            disabled={deleting}
-            onChange={(event) => setDeleteFile(event.currentTarget.checked)}
-          ></s-checkbox>
-        ) : (
+        {!motif?.canDeleteR2 && (
           <s-banner tone="info">
-            Für dieses ältere Motiv ist kein R2-Dateischlüssel gespeichert. Nur
-            der Shopify-Eintrag wird gelöscht.
+            Für dieses Motiv konnte keine Datei im konfigurierten R2-Speicher
+            ermittelt werden. Der Shopify-Eintrag wird trotzdem gelöscht.
           </s-banner>
         )}
         {error && (
@@ -719,11 +717,8 @@ export default function Motifs() {
               const absoluteIndex = (data.page - 1) * PAGE_SIZE + index;
               const categoryName =
                 categoryNames.get(motif.category_handle) || motif.category_handle;
-              const displayLabel = motifDisplayLabel(
-                motif,
-                categoryName,
-                absoluteIndex + 1,
-              );
+              const displayLabel = motif.display_label ||
+                motifDisplayLabel(motif, categoryName, absoluteIndex + 1);
               const cardClassName = [
                 styles.motifCard,
                 draggedHandle === motif.handle ? styles.dragging : "",
@@ -824,6 +819,7 @@ export default function Motifs() {
         initialCategory={data.category}
         multiple={multiple}
         onUploaded={addUploadedMotifs}
+        onFinished={() => revalidator.revalidate()}
       />
       <DeleteModal
         motif={selectedMotif}
