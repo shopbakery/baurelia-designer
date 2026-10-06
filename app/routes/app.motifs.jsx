@@ -190,13 +190,12 @@ const putFile = (uploadUrl, file, onProgress) =>
     request.send(file);
   });
 
-function UploadModal({ categories, initialCategory, multiple, onUploaded, onFinished }) {
+function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
   const shopify = useAppBridge();
   const [files, setFiles] = useState([]);
   const [categoryHandle, setCategoryHandle] = useState(
     initialCategory || categories[0]?.handle || "",
   );
-  const [altText, setAltText] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -230,16 +229,11 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded, onFini
     }
     setError("");
     setFiles(accepted);
-    if (accepted.length === 1) {
-      const suggestedName = motifNameFromFileName(accepted[0].name);
-      setAltText(suggestedName);
-    }
   };
 
   const reset = () => {
     setPreviewUrl("");
     setFiles([]);
-    setAltText("");
     setProgress(0);
     setError("");
   };
@@ -278,7 +272,6 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded, onFini
           slug: itemName,
           categoryHandle,
           originalFilename: file.name,
-          altText: files.length === 1 ? altText.trim() || itemName : itemName,
         });
         onUploaded([completed.motif], categoryHandle);
         setProgress(((index + 1) / files.length) * 100);
@@ -292,7 +285,6 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded, onFini
       );
       reset();
       document.getElementById("motif-upload-modal")?.hideOverlay();
-      onFinished();
     } catch (uploadError) {
       if (files.length > 1 && completedCount > 0) {
         setFiles((currentFiles) => currentFiles.slice(completedCount));
@@ -300,7 +292,6 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded, onFini
         setError(
           `${completedCount} Datei(en) wurden gespeichert. Die übrigen Dateien wurden nicht hochgeladen: ${uploadError.message}`,
         );
-        onFinished();
       } else {
         setError(uploadError.message);
       }
@@ -351,16 +342,6 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded, onFini
               </s-option>
             ))}
           </s-select>
-
-          {files.length <= 1 && (
-            <s-text-area
-              label="Alternativtext"
-              value={altText}
-              rows={3}
-              disabled={uploading}
-              onInput={(event) => setAltText(event.currentTarget.value)}
-            ></s-text-area>
-          )}
 
           {files.length > 1 && (
             <s-banner heading="Mehrfachupload" tone="info">
@@ -819,7 +800,6 @@ export default function Motifs() {
         initialCategory={data.category}
         multiple={multiple}
         onUploaded={addUploadedMotifs}
-        onFinished={() => revalidator.revalidate()}
       />
       <DeleteModal
         motif={selectedMotif}
