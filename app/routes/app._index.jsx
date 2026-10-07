@@ -11,30 +11,24 @@ import {
   getLegacyCatalog,
   listAllMetaobjects,
 } from "../lib/customizer-data.server";
+import {
+  findImportDuplicates,
+  selectImportDuplicates,
+} from "../lib/import-duplicates";
 
-const SAFE_IMPORT_DUPLICATES = {
-  categories: new Set(["fussball-1"]),
-  motifs: new Set([
-    "auto-2-1",
-    "auto-21-1",
-    "auto-54-1",
-    "bagger-17-1",
-    "bagger-18-1",
-    "einhorn-21-1",
-    "einhorn-55-1",
-  ]),
-};
+const unreferencedCategoryDuplicates = (categories, motifs, legacyCategories) => {
+  const referencedHandles = new Set(motifs.map((motif) => motif.category_handle));
+  const referencedIds = new Set(motifs.map((motif) => motif.category));
+  const categoriesByHandle = new Map(
+    categories.map((category) => [category.handle, category]),
+  );
 
-const findImportDuplicates = (items, legacyItems) => {
-  const expectedHandles = new Set(legacyItems.map((item) => item.handle));
-  const expectedSlugs = new Set(legacyItems.map((item) => item.slug));
-
-  return items
-    .filter(
-      (item) =>
-        !expectedHandles.has(item.handle) && expectedSlugs.has(item.slug),
-    )
-    .map((item) => item.handle);
+  return findImportDuplicates(categories, legacyCategories, "categories").filter(
+    (handle) => {
+      const category = categoriesByHandle.get(handle);
+      return !referencedHandles.has(handle) && !referencedIds.has(category.id);
+    },
+  );
 };
 
 export const loader = async ({ request }) => {
@@ -55,8 +49,12 @@ export const loader = async ({ request }) => {
       fonts: fonts.length,
     },
     importDuplicates: {
-      categories: findImportDuplicates(categories, catalog.categories),
-      motifs: findImportDuplicates(motifs, catalog.motifs),
+      categories: unreferencedCategoryDuplicates(
+        categories,
+        motifs,
+        catalog.categories,
+      ),
+      motifs: findImportDuplicates(motifs, catalog.motifs, "motifs"),
     },
   };
 };
@@ -69,28 +67,56 @@ export const action = async ({ request }) => {
     return Response.json({ error: "Ungültige Aktion." }, { status: 400 });
   }
 
-  const catalog = getLegacyCatalog();
   const deletedHandles = [];
-
-  for (const resource of ["categories", "motifs"]) {
-    const items = await listAllMetaobjects(admin, resource);
-    const candidates = findImportDuplicates(items, catalog[resource]).filter(
-      (handle) => SAFE_IMPORT_DUPLICATES[resource].has(handle),
-    );
-
-    for (const handle of candidates) {
-      const item = items.find((candidate) => candidate.handle === handle);
-      if (!item) continue;
-      await deleteMetaobject(admin, item.id);
-      deletedHandles.push(handle);
+  try {
+    const catalog = getLegacyCatalog();
+    const itemsByResource = {
+      categories: await listAllMetaobjects(admin, "categories"),
+      motifs: await listAllMetaobjects(admin, "motifs"),
+    };
+    const current = {
+      categories: unreferencedCategoryDuplicates(
+        itemsByResource.categories,
+        itemsByResource.motifs,
+        catalog.categories,
+      ),
+      motifs: findImportDuplicates(
+        itemsByResource.motifs,
+        catalog.motifs,
+        "motifs",
+      ),
+    };
+    const submitted = JSON.parse(String(formData.get("duplicates") || "null"));
+    const selected = selectImportDuplicates(submitted, current);
+    for (const resource of ["categories", "motifs"]) {
+      for (const handle of selected[resource]) {
+        const item = itemsByResource[resource].find(
+          (candidate) => candidate.handle === handle,
+        );
+        const deletedId = await deleteMetaobject(admin, item.id);
+        if (deletedId !== item.id) {
+          throw new Error(`Shopify hat die Löschung von ${handle} nicht bestätigt.`);
+        }
+        deletedHandles.push(handle);
+      }
     }
-  }
 
-  return {
-    ok: true,
-    deletedHandles,
-    message: `${deletedHandles.length} Import-Duplikate gelöscht.`,
-  };
+    return {
+      ok: true,
+      deletedHandles,
+      message: `${deletedHandles.length} Import-Duplikate gelöscht.`,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Die Bereinigung ist fehlgeschlagen.";
+    return Response.json(
+      {
+        error: deletedHandles.length
+          ? `${deletedHandles.length} Einträge wurden gelöscht; danach trat ein Fehler auf: ${detail}`
+          : detail,
+      },
+      { status: 400 },
+    );
+  }
 };
 
 const cards = [
@@ -136,11 +162,20 @@ export default function Index() {
             <s-paragraph>
               {duplicateHandles.length} zusätzliche Metaobjekte: {duplicateHandles.join(", ")}
             </s-paragraph>
+            <s-paragraph>
+              Prüfe die Handles vor dem Löschen: Es handelt sich um gleiche Slugs
+              in derselben Kategorie. R2-Dateien werden dabei nicht gelöscht.
+            </s-paragraph>
             <Form method="post">
               <input
                 type="hidden"
                 name="intent"
                 value="cleanup-import-duplicates"
+              />
+              <input
+                type="hidden"
+                name="duplicates"
+                value={JSON.stringify(loaderData.importDuplicates)}
               />
               <s-button
                 type="submit"
@@ -154,7 +189,13 @@ export default function Index() {
         </s-banner>
       )}
 
-      {actionData?.message && (
+      {actionData?.error && (
+        <s-banner heading="Bereinigung fehlgeschlagen" tone="critical">
+          {actionData.error}
+        </s-banner>
+      )}
+
+      {actionData?.ok && (
         <s-banner heading="Bereinigung abgeschlossen" tone="success">
           {actionData.message}
         </s-banner>
