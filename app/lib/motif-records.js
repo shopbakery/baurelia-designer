@@ -43,8 +43,8 @@ export const findMotifByStorageKey = (motifs, storageKey) =>
 
 export const isMotifUploadKeyForCategory = (key, categoryHandle) =>
   /^[a-z0-9][a-z0-9-]*$/.test(categoryHandle) &&
-  String(key).startsWith(`motifs/${categoryHandle}/`) &&
-  /^motifs\/[a-z0-9][a-z0-9-]*\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[a-z0-9._-]+$/.test(key);
+  String(key).split("/")[1] === categoryHandle &&
+  /^motifs(?:-v2)?\/[a-z0-9][a-z0-9-]*\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[a-z0-9._-]+$/.test(key);
 
 export const deduplicateMotifs = (motifs) => {
   const seenSlugs = new Set();

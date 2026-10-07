@@ -1,7 +1,7 @@
 import legacyCatalog from "../data/legacy-catalog.json";
 import { motifOriginalFilename } from "./motif-labels";
 import { deduplicateMotifs } from "./motif-records";
-import { motifWithCurrentPublicUrls } from "./r2.server";
+import { hasVerifiedMotifObject, motifWithCurrentPublicUrls } from "./r2.server";
 
 const compactValues = (values) =>
   Object.fromEntries(
@@ -363,7 +363,10 @@ export async function getPublicMotifs(admin, categoryHandle) {
       source: "legacy",
       motifs: deduplicateMotifs(
         legacyCatalog.motifs.filter(
-          (item) => item.categoryHandle === categoryHandle && item.active,
+          (item) =>
+            item.categoryHandle === categoryHandle &&
+            item.active &&
+            hasVerifiedMotifObject(item),
         ).map(motifWithCurrentPublicUrls),
       ),
     };
@@ -379,7 +382,7 @@ export async function getPublicMotifs(admin, categoryHandle) {
     source: "shopify",
     motifs: deduplicateMotifs(
       motifs
-        .filter((item) => item.active !== false)
+        .filter((item) => item.active !== false && hasVerifiedMotifObject(item))
         .map(motifWithCurrentPublicUrls),
     ),
   };

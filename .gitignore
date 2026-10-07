@@ -1,6 +1,10 @@
 node_modules/
+.venv/
+__pycache__/
+*.pyc
 build/
 .react-router/
 .env
 .env.*
 !.env.example
+scripts/r2-resize/reports/

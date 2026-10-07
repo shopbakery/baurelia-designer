@@ -99,7 +99,10 @@ test("repeated completion finds the already saved upload", () => {
 
 test("an upload key must match the selected category and key shape", () => {
   const key = "motifs/katze/49a34a27-50a4-484a-9a17-504d57dfe11e-katze-28.png";
+  const newKey = key.replace(/^motifs\//, "motifs-v2/");
   assert.equal(isMotifUploadKeyForCategory(key, "katze"), true);
+  assert.equal(isMotifUploadKeyForCategory(newKey, "katze"), true);
+  assert.equal(isMotifUploadKeyForCategory(newKey, "hund"), false);
   assert.equal(isMotifUploadKeyForCategory(key, "hund"), false);
   assert.equal(isMotifUploadKeyForCategory("Katze/katze-28.png", "katze"), false);
 });

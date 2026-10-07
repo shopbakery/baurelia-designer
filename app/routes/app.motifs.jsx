@@ -429,8 +429,9 @@ function DeleteModal({ motif, onDeleted }) {
         <s-text>
           Das Motiv wird aus Shopify entfernt. Die zugehörige Bilddatei wird
           automatisch aus Cloudflare R2 gelöscht, sobald sie von keinem anderen
-          Motiv mehr verwendet wird. Diese Aktion kann nicht rückgängig gemacht
-          werden.
+          Motiv mehr verwendet wird. Bei migrierten Motiven bleibt die alte
+          Originaldatei als Backup bestehen. Der Shopify-Eintrag kann nicht
+          automatisch wiederhergestellt werden.
         </s-text>
         {!motif?.canDeleteR2 && (
           <s-banner tone="info">

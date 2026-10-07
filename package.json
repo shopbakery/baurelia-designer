@@ -20,7 +20,8 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "catalog:extract": "node scripts/extract-legacy-catalog.mjs"
+    "catalog:extract": "node scripts/extract-legacy-catalog.mjs",
+    "catalog:check": "node scripts/check-public-motifs.mjs"
   },
   "type": "module",
   "packageManager": "pnpm@11.19.0",
@@ -43,6 +44,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "7.18.2",
+    "sharp": "^0.35.5",
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {

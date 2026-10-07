@@ -11,8 +11,9 @@ import {
   slugifyMotif,
 } from "../lib/motif-records";
 import {
+  completeMotifImages,
   createMotifUpload,
-  r2PublicUrl,
+  motifWithCurrentPublicUrls,
   verifyMotifUpload,
 } from "../lib/r2.server";
 
@@ -84,7 +85,11 @@ export const action = async ({ request }) => {
       );
       const alreadyCompleted = findMotifByStorageKey(categoryMotifs, key);
       if (alreadyCompleted) {
-        return Response.json({ ok: true, motif: alreadyCompleted });
+        if (key.startsWith("motifs-v2/")) await completeMotifImages(key);
+        return Response.json({
+          ok: true,
+          motif: motifWithCurrentPublicUrls(alreadyCompleted),
+        });
       }
       const slug = slugifyMotif(value(formData, "slug") || name);
       const duplicate = findDuplicateMotif(categoryMotifs, slug);
@@ -105,14 +110,14 @@ export const action = async ({ request }) => {
         .slice(0, 2)
         .join("-");
       const handle = `${slug || "motiv"}-${uniqueSuffix}`;
-      const imageUrl = r2PublicUrl(key);
+      const { imageUrl, thumbnailUrl } = await completeMotifImages(key);
       const motif = await upsertMetaobject(admin, "motifs", handle, {
         name,
         slug: slug || handle,
         category: category.id,
         category_handle: categoryHandle,
         image_url: imageUrl,
-        thumbnail_url: imageUrl,
+        thumbnail_url: thumbnailUrl,
         r2_key: key,
         original_filename: originalFilename,
         alt_text: altText,
@@ -120,7 +125,7 @@ export const action = async ({ request }) => {
         active: true,
       });
 
-      return Response.json({ ok: true, motif });
+      return Response.json({ ok: true, motif: motifWithCurrentPublicUrls(motif) });
     }
 
     return Response.json({ error: "Ungültige Upload-Aktion." }, { status: 400 });

@@ -5,8 +5,8 @@ import {
   upsertMetaobject,
 } from "../lib/customizer-data.server";
 import {
-  deleteMotifObject,
-  motifKeyFromPublicUrl,
+  currentMotifKey,
+  deleteMotifAssets,
 } from "../lib/r2.server";
 import { findSharedMotifReferences } from "../lib/motif-records";
 
@@ -107,8 +107,7 @@ export const action = async ({ request }) => {
       const motif = motifs.find((item) => item.handle === handle);
       if (!motif) throw new Error("Das Motiv wurde nicht gefunden.");
 
-      const storageKeyForMotif = (item) =>
-        item.r2_key || motifKeyFromPublicUrl(item.image_url);
+      const storageKeyForMotif = currentMotifKey;
       const r2Key = storageKeyForMotif(motif);
       await deleteMetaobject(admin, motif.id);
 
@@ -127,7 +126,7 @@ export const action = async ({ request }) => {
           warning = `Der Shopify-Eintrag wurde gelöscht. Die R2-Datei bleibt erhalten, weil sie noch von ${sharedReferences.length} weiteren Motiv(en) verwendet wird.`;
         } else {
           try {
-            await deleteMotifObject(r2Key);
+            await deleteMotifAssets(r2Key);
           } catch {
             warning =
               "Der Shopify-Eintrag wurde gelöscht, die R2-Datei konnte jedoch nicht entfernt werden.";
