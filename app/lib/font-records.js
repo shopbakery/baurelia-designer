@@ -1,5 +1,7 @@
 import { slugFromName } from "./resource-slug.js";
 
+export const FONT_PREVIEW_TEXT = "Wunschtext";
+
 export const fontSlugFromName = (name) => {
   const slug = slugFromName(name);
   if (!slug) {

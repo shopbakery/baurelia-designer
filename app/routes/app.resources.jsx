@@ -17,7 +17,11 @@ import {
   assertColorSlugAvailable,
   colorSlugFromName,
 } from "../lib/color-records";
-import { assertFontAvailable, fontSlugFromName } from "../lib/font-records";
+import {
+  assertFontAvailable,
+  FONT_PREVIEW_TEXT,
+  fontSlugFromName,
+} from "../lib/font-records";
 import {
   countMotifsByCategory,
   RESOURCE_TYPES,
@@ -203,7 +207,7 @@ const buildValues = (resource, formData, categoriesByHandle) => {
     font_url: woff2Url,
     woff2_url: woff2Url,
     ttf_url: ttfUrl,
-    preview_text: optionalValue(formData.get("previewText")) || "Wunschtext",
+    preview_text: FONT_PREVIEW_TEXT,
     scale: Number(formData.get("scale") || 1),
   };
 };
@@ -215,7 +219,7 @@ const fontValues = (font, overrides = {}) => ({
   font_url: font.font_url,
   woff2_url: font.woff2_url,
   ttf_url: font.ttf_url,
-  preview_text: font.preview_text || "Wunschtext",
+  preview_text: FONT_PREVIEW_TEXT,
   scale: Number(font.scale || 1),
   sort_order: Number(font.sort_order || 0),
   active: font.active !== false,
@@ -413,8 +417,6 @@ export const action = async ({ request }) => {
         name: required(formData, "name"),
         slug: required(formData, "slug"),
         font_family: required(formData, "fontFamily"),
-        preview_text:
-          optionalValue(formData.get("previewText")) || "Wunschtext",
         scale: Number(formData.get("scale") || 1),
         sort_order: Number(formData.get("sortOrder") || 0),
         active: formData.get("active") === "true",
@@ -528,7 +530,6 @@ function ResourceForm({ resource, categories }) {
               name="ttfUrl"
               required
             ></s-url-field>
-            <s-text-field label="Vorschautext" name="previewText" value="Wunschtext"></s-text-field>
             <s-number-field label="Größenfaktor" name="scale" value="1" min="0.1" step="0.05"></s-number-field>
           </>
         )}
@@ -800,7 +801,7 @@ function FontLibrary({ items }) {
                 className={styles.fontPreview}
                 style={{ fontFamily: `"${face.family}", sans-serif` }}
               >
-                {font.preview_text || "Wunschtext"}
+                {FONT_PREVIEW_TEXT}
               </div>
               <div className={styles.fontBody}>
                 <div className={styles.fontHeading}>
@@ -857,7 +858,7 @@ function FontLibrary({ items }) {
                         className={styles.fontModalPreview}
                         style={{ fontFamily: `"${face.family}", sans-serif` }}
                       >
-                        {font.preview_text || "Wunschtext"}
+                        {FONT_PREVIEW_TEXT}
                       </div>
                       <s-text-field
                         label="Name"
@@ -897,11 +898,6 @@ function FontLibrary({ items }) {
                           WOFF2- und TTF-Links können bei Bedarf ergänzt werden.
                         </s-banner>
                       )}
-                      <s-text-field
-                        label="Vorschautext"
-                        name="previewText"
-                        value={font.preview_text || "Wunschtext"}
-                      ></s-text-field>
                       <s-number-field
                         label="Größenfaktor"
                         name="scale"
