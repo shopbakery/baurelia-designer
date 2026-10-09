@@ -10,6 +10,15 @@ import {
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
+  assertCategorySlugAvailable,
+  categorySlugFromName,
+} from "../lib/category-records";
+import {
+  assertColorSlugAvailable,
+  colorSlugFromName,
+} from "../lib/color-records";
+import { assertFontAvailable, fontSlugFromName } from "../lib/font-records";
+import {
   countMotifsByCategory,
   RESOURCE_TYPES,
   deleteMetaobject,
@@ -130,7 +139,14 @@ const postAuthenticatedAction = async (shopify, url, payload) => {
 
 const buildValues = (resource, formData, categoriesByHandle) => {
   const name = required(formData, "name");
-  const slug = required(formData, "slug");
+  const slug =
+    resource === "categories"
+      ? categorySlugFromName(name)
+      : resource === "colors"
+        ? colorSlugFromName(name)
+        : resource === "fonts"
+          ? fontSlugFromName(name)
+          : required(formData, "slug");
   const common = {
     name,
     slug,
@@ -139,10 +155,7 @@ const buildValues = (resource, formData, categoriesByHandle) => {
   };
 
   if (resource === "categories") {
-    return {
-      ...common,
-      description: optionalValue(formData.get("description")),
-    };
+    return common;
   }
 
   if (resource === "motifs") {
@@ -186,7 +199,7 @@ const buildValues = (resource, formData, categoriesByHandle) => {
 
   return {
     ...common,
-    font_family: required(formData, "fontFamily"),
+    font_family: name,
     font_url: woff2Url,
     woff2_url: woff2Url,
     ttf_url: ttfUrl,
@@ -422,7 +435,21 @@ export const action = async ({ request }) => {
       categories.map((category) => [category.handle, category.id]),
     );
     const values = buildValues(resource, formData, categoriesByHandle);
-    const handle = String(formData.get("handle") || "").trim() || slugify(values.slug);
+    if (resource === "categories") {
+      const existingCategories = await listAllMetaobjects(admin, "categories");
+      assertCategorySlugAvailable(existingCategories, values.slug);
+    }
+    if (resource === "colors") {
+      const existingColors = await listAllMetaobjects(admin, "colors");
+      assertColorSlugAvailable(existingColors, values.slug);
+    }
+    if (resource === "fonts") {
+      const existingFonts = await listAllMetaobjects(admin, "fonts");
+      assertFontAvailable(existingFonts, values.name, values.slug);
+    }
+    const handle = resource === "categories" || resource === "colors" || resource === "fonts"
+      ? values.slug
+      : String(formData.get("handle") || "").trim() || slugify(values.slug);
     const item = await upsertMetaobject(admin, resource, handle, values);
 
     if (resource === "categories") {
@@ -454,10 +481,8 @@ function ResourceForm({ resource, categories }) {
       <input type="hidden" name="resource" value={resource} />
       <s-stack direction="block" gap="base">
         <s-text-field label="Name" name="name" required></s-text-field>
-        <s-text-field label="Slug" name="slug" required></s-text-field>
-
-        {resource === "categories" && (
-          <s-text-area label="Beschreibung" name="description" rows={3}></s-text-area>
+        {resource === "motifs" && (
+          <s-text-field label="Slug" name="slug" required></s-text-field>
         )}
 
         {resource === "motifs" && (
@@ -489,7 +514,6 @@ function ResourceForm({ resource, categories }) {
 
         {resource === "fonts" && (
           <>
-            <s-text-field label="CSS-Schriftfamilie" name="fontFamily" required></s-text-field>
             <s-url-field
               label="WOFF2-Datei-URL"
               details="Link zur .woff2-Datei unter Shopify → Inhalte → Dateien."
