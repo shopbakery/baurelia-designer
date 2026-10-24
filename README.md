@@ -81,7 +81,7 @@ werden.
 ### Railway-Variablen
 
 ```env
-SHOPIFY_APP_URL=https://DEINE-DOMAIN.up.railway.app
+SHOPIFY_APP_URL=https://baurelia-designer-production.up.railway.app
 SHOPIFY_API_KEY=...
 SHOPIFY_API_SECRET=...
 SCOPES=read_metaobject_definitions,write_metaobject_definitions,read_metaobjects,write_metaobjects
@@ -102,10 +102,10 @@ Nach dem ersten erfolgreichen Railway-Deployment in `shopify.app.toml` beide
 Platzhalter ersetzen:
 
 ```toml
-application_url = "https://DEINE-DOMAIN.up.railway.app"
+application_url = "https://baurelia-designer-production.up.railway.app"
 
 [auth]
-redirect_urls = ["https://DEINE-DOMAIN.up.railway.app/api/auth"]
+redirect_urls = ["https://baurelia-designer-production.up.railway.app/auth/callback"]
 ```
 
 Danach die App-Konfiguration und Metaobjektdefinitionen veröffentlichen:

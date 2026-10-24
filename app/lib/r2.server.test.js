@@ -11,6 +11,7 @@ import {
   createMotifUpload,
   currentMotifKey,
   hasVerifiedMotifObject,
+  headMotifImportObject,
   motifKeyFromPublicUrl,
   motifVariantKeys,
   motifWithCurrentPublicUrls,
@@ -136,6 +137,27 @@ test("new presigned uploads use motifs-v2 and remain category-specific", async (
   assert.match(upload.key, /^motifs-v2\/zahnfee\/[a-f0-9-]+-neues-motiv\.png$/);
   assert.equal(upload.publicUrl, `${newPublicUrl}/${upload.key}`);
   assert.match(upload.uploadUrl, /X-Amz-Signature=/);
+});
+
+test("import verification only HEADs scoped master and variants", async () => {
+  const requested = [];
+  const storage = {
+    async send(command) {
+      assert.ok(command instanceof HeadObjectCommand);
+      requested.push(command.input.Key);
+      return { ContentType: "image/webp", ContentLength: 42 };
+    },
+  };
+  const key = "motifs-v2/affe/abc123-affe-1.png";
+  const variant = motifVariantKeys(key).thumbnail;
+  await headMotifImportObject(key, { storage, bucket: "test-bucket" });
+  await headMotifImportObject(variant, { storage, bucket: "test-bucket" });
+  assert.deepEqual(requested, [key, variant]);
+  await assert.rejects(
+    headMotifImportObject("other/secret.png", { storage, bucket: "test-bucket" }),
+    /Ungültiger Motivimport-Schlüssel/,
+  );
+  assert.deepEqual(requested, [key, variant]);
 });
 
 test("completion resizes the master, creates both variants, and can be retried", async () => {

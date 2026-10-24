@@ -32,6 +32,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app" onClick={navigateInsideApp("/app")}>Übersicht</s-link>
         <s-link href="/app/motifs" onClick={navigateInsideApp("/app/motifs")}>Motive</s-link>
+        <s-link href="/app/motif-import" onClick={navigateInsideApp("/app/motif-import")}>Motivmigration</s-link>
         <s-link href="/app/categories" onClick={navigateInsideApp("/app/categories")}>Kategorien</s-link>
         <s-link href="/app/colors" onClick={navigateInsideApp("/app/colors")}>Farben</s-link>
         <s-link href="/app/fonts" onClick={navigateInsideApp("/app/fonts")}>Schriften</s-link>

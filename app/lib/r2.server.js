@@ -129,6 +129,18 @@ export async function verifyMotifUpload(key, options = {}) {
   return result;
 }
 
+// Read-only verification for the one-time motif import. Unlike
+// completeMotifImages(), this never downloads or rewrites a print master.
+export async function headMotifImportObject(key, options = {}) {
+  assertSafeObjectKey(key);
+  if (!/^motifs-v2(?:-thumbs|-previews)?\/[a-z0-9][a-z0-9-]*\/[a-z0-9._-]+$/.test(key)) {
+    throw new Error("Ungültiger Motivimport-Schlüssel.");
+  }
+  const bucket = options.bucket || config().bucket;
+  const storage = options.storage || client();
+  return storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+}
+
 export function motifVariantKeys(key) {
   assertSafeObjectKey(key);
   if (!key.startsWith(`${MOTIF_PREFIX}/`)) return null;

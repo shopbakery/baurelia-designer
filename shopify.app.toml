@@ -2,7 +2,7 @@
 
 client_id = "c2843f28f7f4078230769fd7b5abfc9e"
 name = "baurelia-designer"
-application_url = "https://example.com"
+application_url = "https://baurelia-designer-production.up.railway.app"
 embedded = true
 
 [build]
@@ -233,7 +233,7 @@ api_version = "2026-07"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://baurelia-designer-production.up.railway.app/auth/callback" ]
 
 [app_proxy]
 url = "/api/customizer"
