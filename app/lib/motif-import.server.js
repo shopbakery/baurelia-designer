@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import migratedMotifKeys from "../data/motif-v2-map.js";
 
 const MAX_BATCH = 10;
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -87,8 +88,17 @@ function classifyCurrent(entry, current, target, keyFromPublicUrl) {
     }
     return "already_done";
   }
-  if (storedKey !== entry.old_key || current.updatedAt !== entry.old_updated_at) {
-    throw new Error(`Motiv wurde seit dem Katalogexport geändert: ${entry.handle}`);
+  // The catalog export uses the public, migrated R2 key. Older Shopify
+  // metaobjects still store their original key until this import updates them.
+  const catalogKey = Object.hasOwn(migratedMotifKeys, storedKey)
+    ? migratedMotifKeys[storedKey] : storedKey;
+  if (catalogKey !== entry.old_key) {
+    throw new Error(`Gespeicherter Bildschlüssel stimmt nicht mit dem Katalogexport überein: ${entry.handle} ` +
+      `(Shopify: ${storedKey || "leer"}; Export: ${entry.old_key}).`);
+  }
+  if (current.updatedAt !== entry.old_updated_at) {
+    throw new Error(`Motiv wurde seit dem Katalogexport geändert: ${entry.handle} ` +
+      `(Export: ${entry.old_updated_at}; Shopify: ${current.updatedAt || "leer"}).`);
   }
   return "ready";
 }

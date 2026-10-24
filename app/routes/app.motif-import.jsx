@@ -108,7 +108,7 @@ export default function MotifImport() {
       setMessage(`Vorprüfung bestanden: ${checked} Motive und jeweils drei R2-Dateien geprüft. ` +
         "Erst nach ausdrücklicher Bestätigung werden Shopify-Metaobjekte umgestellt.");
     } catch (error) {
-      setMessage(`Vorprüfung bei Motiv ${checked + 1} gestoppt: ${error.message} ` +
+      setMessage(`Vorprüfung im Batch ${Math.floor(checked / MAX_BATCH) + 1} gestoppt: ${error.message} ` +
         "Es wurde nichts in Shopify geändert.");
     } finally {
       runLock.current = false;

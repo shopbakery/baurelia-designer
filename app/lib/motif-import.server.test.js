@@ -137,6 +137,45 @@ test("old storage key can be recovered from its existing public URL", async () =
   assert.equal(inspection.results[0].status, "ready");
 });
 
+test("legacy Shopify key is matched through the verified public migration map", async () => {
+  const legacySource = { ...source, handle: "affe-17", motif_id: "affe-17",
+    old_key: "motifs-v2/affe/Affe 17.png" };
+  const legacyEntry = { ...legacySource, new_key: motifImportKeys(legacySource).master };
+  const store = heads(legacyEntry);
+  const legacyMotif = { ...oldMotif, handle: legacyEntry.handle, r2_key: "",
+    image_url: "https://pub-049e86916f8f447aab9e07fd4144ab91.r2.dev/Affe/Affe%2017.png" };
+  const dependencies = {
+    publicUrlForKey,
+    keyFromPublicUrl: () => "Affe/Affe 17.png",
+    loadMotif: async () => legacyMotif,
+    headObject: async (key) => store.get(key),
+  };
+  const inspection = await inspectMotifImportBatch([legacyEntry], dependencies);
+  assert.equal(inspection.results[0].status, "ready");
+  await assert.rejects(inspectMotifImportBatch([legacyEntry], {
+    ...dependencies,
+    loadMotif: async () => ({ ...legacyMotif, updatedAt: "2026-10-24T18:00:00Z" }),
+  }), /seit dem Katalogexport geändert/);
+  await assert.rejects(inspectMotifImportBatch([legacyEntry], {
+    ...dependencies,
+    keyFromPublicUrl: () => "Affe/another.png",
+  }), /Bildschlüssel stimmt nicht/);
+  let live = legacyMotif;
+  const applied = await applyMotifImportBatch(inspection.checked, {
+    ...dependencies,
+    loadMotif: async () => live,
+    updateMotif: async (id, values) => {
+      assert.equal(id, legacyEntry.id);
+      live = { ...live, ...values, updatedAt: "2026-10-24T18:00:00Z" };
+    },
+  });
+  assert.equal(applied[0].status, "updated");
+  const repeated = await inspectMotifImportBatch([legacyEntry], {
+    ...dependencies, loadMotif: async () => live,
+  });
+  assert.equal(repeated.results[0].status, "already_done");
+});
+
 test("apply updates only three image fields by ID, checks read-back and is idempotent", async () => {
   const store = heads();
   let current = { ...oldMotif };
