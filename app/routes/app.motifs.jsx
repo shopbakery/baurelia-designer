@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Form,
   Link,
@@ -14,6 +14,7 @@ import {
   motifOriginalFilename,
 } from "../lib/motif-labels";
 import { motifNameFromFileName } from "../lib/motif-records";
+import { inspectMotifFile } from "../lib/motif-quality.browser";
 import {
   motifKeyFromPublicUrl,
   motifWithCurrentPublicUrls,
@@ -193,6 +194,9 @@ const putFile = (uploadUrl, file, onProgress) =>
 function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
   const shopify = useAppBridge();
   const [files, setFiles] = useState([]);
+  const [fileChecks, setFileChecks] = useState([]);
+  const [checkingFiles, setCheckingFiles] = useState(false);
+  const selectionId = useRef(0);
   const [categoryHandle, setCategoryHandle] = useState(
     initialCategory || categories[0]?.handle || "",
   );
@@ -201,6 +205,10 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const primaryFile = files[0] || null;
+  const invalidFiles = fileChecks.filter((check) => check.status === "invalid");
+  const canUpload = files.length > 0 && !checkingFiles && !uploading &&
+    fileChecks.length === files.length &&
+    fileChecks.every((check) => check.status === "ready") && Boolean(categoryHandle);
 
   useEffect(() => {
     if (initialCategory) setCategoryHandle(initialCategory);
@@ -216,31 +224,59 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
     return () => URL.revokeObjectURL(nextPreview);
   }, [files]);
 
-  const selectFiles = (event) => {
+  const selectFiles = async (event) => {
     const selected = Array.from(event.currentTarget.files || []);
     const accepted = multiple ? selected : selected.slice(0, 1);
-    const invalid = accepted.find(
-      (file) => !ALLOWED_TYPES.has(file.type) || file.size > MAX_FILE_SIZE,
-    );
-    if (invalid) {
-      setError("Erlaubt sind PNG, JPG und WebP mit maximal 10 MB pro Datei.");
-      setFiles([]);
-      return;
-    }
+    const currentSelection = ++selectionId.current;
     setError("");
     setFiles(accepted);
+    setFileChecks(accepted.map((file) => ({ name: file.name, status: "checking" })));
+    setCheckingFiles(accepted.length > 0);
+
+    let nextIndex = 0;
+    const inspectNext = async () => {
+      while (nextIndex < accepted.length && selectionId.current === currentSelection) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const file = accepted[index];
+        let check;
+        if (!ALLOWED_TYPES.has(file.type) || file.size > MAX_FILE_SIZE || file.size === 0) {
+          check = { error: "Erlaubt sind PNG, JPG und WebP mit maximal 10 MB pro Datei." };
+        } else {
+          check = await inspectMotifFile(file);
+        }
+        if (selectionId.current !== currentSelection) return;
+        setFileChecks((current) => current.map((item, itemIndex) =>
+          itemIndex === index
+            ? { name: file.name, ...check, status: check.error ? "invalid" : "ready" }
+            : item,
+        ));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, accepted.length) }, inspectNext));
+    if (selectionId.current === currentSelection) setCheckingFiles(false);
   };
 
   const reset = () => {
+    selectionId.current += 1;
     setPreviewUrl("");
     setFiles([]);
+    setFileChecks([]);
+    setCheckingFiles(false);
     setProgress(0);
     setError("");
   };
 
+  const removeFile = (index) => {
+    setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setFileChecks((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setError("");
+  };
+
   const upload = async () => {
-    if (!files.length) {
-      setError("Bitte wähle mindestens eine Bilddatei aus.");
+    if (!files.length || checkingFiles || fileChecks.length !== files.length ||
+        fileChecks.some((check) => check.status !== "ready")) {
+      setError("Bitte ersetze oder entferne zuerst alle nicht geeigneten Bilddateien.");
       return;
     }
     if (!categoryHandle) {
@@ -288,6 +324,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
     } catch (uploadError) {
       if (files.length > 1 && completedCount > 0) {
         setFiles((currentFiles) => currentFiles.slice(completedCount));
+        setFileChecks((currentChecks) => currentChecks.slice(completedCount));
         setProgress(0);
         setError(
           `${completedCount} Datei(en) wurden gespeichert. Die übrigen Dateien wurden nicht hochgeladen: ${uploadError.message}`,
@@ -324,6 +361,35 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
                     : `${(primaryFile.size / 1024 / 1024).toFixed(1)} MB`}
                 </span>
               </div>
+            </div>
+          )}
+          {fileChecks.length > 0 && (
+            <div className={styles.uploadChecks} aria-live="polite">
+              {invalidFiles.length > 0 && (
+                <p className={styles.uploadChecksWarning}>
+                  {invalidFiles.length} Datei(en) zu klein oder ungültig. Bitte entfernen oder neu auswählen.
+                </p>
+              )}
+              <ul>
+                {fileChecks.map((check, index) => (
+                  <li key={`${index}-${check.name}`}>
+                    <strong>{check.name}</strong>
+                    <span className={check.status === "invalid" ? styles.uploadCheckError : ""}>
+                      {check.status === "checking"
+                        ? "Bild wird geprüft …"
+                        : check.error || `Druckmotiv: ${check.visibleWidth} × ${check.visibleHeight} px (geeignet)`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={checkingFiles || uploading}
+                      onClick={() => removeFile(index)}
+                      aria-label={`${check.name} entfernen`}
+                    >
+                      Entfernen
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -368,11 +434,11 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
       <s-button
         slot="primary-action"
         variant="primary"
-        loading={uploading}
-        disabled={!files.length || !categoryHandle}
+        loading={uploading || checkingFiles}
+        disabled={!canUpload}
         onClick={upload}
       >
-        Hochladen und speichern
+        {checkingFiles ? "Motive prüfen …" : "Hochladen und speichern"}
       </s-button>
       <s-button
         slot="secondary-actions"

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -8,6 +9,7 @@ import {
 import sharp from "sharp";
 import {
   completeMotifImages,
+  completeNewMotifImages,
   createMotifUpload,
   currentMotifKey,
   hasVerifiedMotifObject,
@@ -168,7 +170,7 @@ test("completion resizes the master, creates both variants, and can be retried",
       width: 4000,
       height: 2000,
       channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
+      background: { r: 255, g: 0, b: 0, alpha: 1 },
     },
   }).png().toBuffer();
   const objects = new Map([[key, { body: source, type: "image/png", etag: '"1"' }]]);
@@ -225,4 +227,40 @@ test("completion resizes the master, creates both variants, and can be retried",
   const second = await completeMotifImages(key, { storage, bucket: "test-bucket" });
   assert.deepEqual(second, first);
   assert.equal(written.length, 3);
+});
+
+test("a newly uploaded low-resolution master is removed before variants or a Shopify record", async () => {
+  const key = "motifs-v2/zahnfee/49a34a27-50a4-484a-9a17-504d57dfe11e-small.png";
+  const source = await sharp({
+    create: { width: 1499, height: 900, channels: 4, background: "#ff0000ff" },
+  }).png().toBuffer();
+  const objects = new Map([[key, source]]);
+  const commands = [];
+  const storage = {
+    async send(command) {
+      commands.push(command.constructor.name);
+      if (command instanceof HeadObjectCommand) {
+        return { ContentType: "image/png", ContentLength: source.length, ETag: '"1"' };
+      }
+      if (command instanceof GetObjectCommand) {
+        return { Body: { transformToByteArray: async () => source } };
+      }
+      if (command instanceof DeleteObjectCommand) {
+        objects.delete(command.input.Key);
+        return {};
+      }
+      if (command instanceof PutObjectCommand) {
+        throw new Error("A rejected motif must not create variants");
+      }
+      throw new Error("Unexpected R2 command");
+    },
+  };
+  await assert.rejects(
+    completeNewMotifImages(key, { storage, bucket: "test-bucket" }),
+    (error) => error.code === "MOTIF_RESOLUTION",
+  );
+  assert.equal(objects.has(key), false);
+  assert.deepEqual(commands, [
+    "HeadObjectCommand", "GetObjectCommand", "DeleteObjectCommand",
+  ]);
 });

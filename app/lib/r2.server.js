@@ -234,6 +234,28 @@ export async function completeMotifImages(key, options = {}) {
   };
 }
 
+// Only use for a newly uploaded, not-yet-registered motif. A low-resolution
+// rejection removes its temporary master so it cannot linger in R2.
+export async function completeNewMotifImages(key, options = {}) {
+  assertMotifKey(key);
+  const bucket = options.bucket || config().bucket;
+  const storage = options.storage || client();
+  try {
+    return await completeMotifImages(key, { ...options, bucket, storage });
+  } catch (error) {
+    if (error.code !== "MOTIF_RESOLUTION") throw error;
+    try {
+      await storage.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (cleanupError) {
+      throw new Error(
+        `${error.message} Die abgewiesene Datei konnte in R2 nicht entfernt werden.`,
+        { cause: cleanupError },
+      );
+    }
+    throw error;
+  }
+}
+
 export async function deleteMotifObject(key) {
   assertSafeObjectKey(key);
   const values = config();

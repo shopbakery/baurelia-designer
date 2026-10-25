@@ -9,7 +9,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../..");
 const PLAN = path.join(ROOT, "r2-speicher-vergleich/outputs/motif-import/plan.json");
 const OUTPUT_DIR = path.dirname(PLAN);
+const SOURCE_INVENTORY = path.join(OUTPUT_DIR, "sources.json");
 const SHOP = "3f14b7-2.myshopify.com";
+const REVIEW_EXCLUSIONS = new Set([
+  "motorrad-13", "fuchs-34", "fuchs-35", "fuchs-36",
+  "fuchs-10", "fuchs-12", "fussball-14",
+]);
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 40_000_000;
 const CACHE = "public, max-age=31536000, immutable";
@@ -18,17 +23,21 @@ const VARIANT_SIDES = { thumbnail: 300, preview: 900 };
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 export function parseArgs(args) {
-  const options = { upload: false, limit: null, all: false, approve: null };
+  const options = { upload: false, limit: null, all: false, approvedOnly: false, approve: null };
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--upload") options.upload = true;
     else if (args[i] === "--all") options.all = true;
+    else if (args[i] === "--approved-only") options.approvedOnly = true;
     else if (args[i] === "--limit") options.limit = Number(args[++i]);
     else if (args[i] === "--approve-review") options.approve = args[++i];
     else throw new Error(`Unbekannte Option: ${args[i]}`);
   }
-  if (options.all === (options.limit !== null) ||
+  if (Number(options.all) + Number(options.approvedOnly) + Number(options.limit !== null) !== 1 ||
       (options.limit !== null && (!Number.isInteger(options.limit) || options.limit < 1))) {
-    throw new Error("Genau eine Auswahl angeben: --limit N oder --all.");
+    throw new Error("Genau eine Auswahl angeben: --limit N, --all oder --approved-only.");
+  }
+  if (options.approvedOnly && !options.approve) {
+    throw new Error("--approved-only erfordert --approve-review DATEI.");
   }
   return options;
 }
@@ -85,6 +94,42 @@ export function validatePlan(plan) {
     ids.add(item.id);
     keys.add(masterKey);
   }
+}
+
+export function selectApprovedReview(plan, inventory, approval) {
+  if (approval?.schema !== 1 || inventory?.schema !== 1 || !Array.isArray(inventory.items)) {
+    throw new Error("Prüffreigabe oder Quellinventar ungültig.");
+  }
+  const groups = ["approved_motif_ids", "approved_without_safe_shopify_target", "excluded_motif_ids"];
+  const all = [];
+  for (const group of groups) {
+    if (!Array.isArray(approval[group]) ||
+        !approval[group].every((id) => typeof id === "string" && id.length > 0)) {
+      throw new Error(`Prüffreigabe ohne gültige Liste ${group}.`);
+    }
+    all.push(...approval[group]);
+  }
+  if (new Set(all).size !== all.length) throw new Error("Doppelte Motiv-ID in der Prüffreigabe.");
+  const reviewIds = inventory.items.filter((item) => item.needs_review).map((item) => item.motif_id);
+  if (new Set(reviewIds).size !== reviewIds.length || all.length !== reviewIds.length ||
+      all.some((id) => !reviewIds.includes(id))) {
+    throw new Error("Prüffreigabe deckt die Qualitätsprüfliste nicht exakt ab.");
+  }
+  const excluded = new Set(approval.excluded_motif_ids);
+  if (excluded.size !== REVIEW_EXCLUSIONS.size ||
+      [...REVIEW_EXCLUSIONS].some((id) => !excluded.has(id))) {
+    throw new Error("Die sieben vom Nutzer ausgeschlossenen Motive müssen ausgeschlossen bleiben.");
+  }
+  const planByMotif = new Map(plan.entries.map((item) => [item.motif_id, item]));
+  if (planByMotif.size !== plan.entries.length) {
+    throw new Error("Mehrdeutige Motiv-ID im Shopify-Zuordnungsplan.");
+  }
+  if (approval.approved_motif_ids.some((id) => !planByMotif.get(id)?.needs_review) ||
+      approval.approved_without_safe_shopify_target.some((id) => planByMotif.has(id))) {
+    throw new Error("Freigabe und Shopify-Zuordnung stimmen nicht überein.");
+  }
+  const approved = new Set(approval.approved_motif_ids);
+  return plan.entries.filter((item) => item.needs_review && approved.has(item.motif_id));
 }
 
 async function sourcePath(baseDir, relativePath) {
@@ -153,7 +198,8 @@ export async function prepareItem(item, baseDir) {
 export function selectionFingerprint(planSha256, approvalSha256, options, selected) {
   return sha256(Buffer.from(JSON.stringify({
     schema: 2, shop: SHOP, plan_sha256: planSha256, approval_sha256: approvalSha256,
-    selection: options.all ? "all_eligible" : `first_${options.limit}`,
+    selection: options.approvedOnly ? "approved_review_only" :
+      options.all ? "all_eligible" : `first_${options.limit}`,
     selected: selected.map((item) => ({ id: item.id, motif_id: item.motif_id,
       source_sha256: item.source_sha256, keys: objectKeys(item) })),
   })));
@@ -243,23 +289,30 @@ async function main() {
   validatePlan(plan);
   let approved = new Set();
   let approvalSha256 = null;
+  let approvalDocument = null;
   if (options.approve) {
     const approvalBytes = await readFile(path.resolve(options.approve));
-    const document = JSON.parse(approvalBytes.toString("utf8"));
-    if (!Array.isArray(document.approved_motif_ids) ||
-        !document.approved_motif_ids.every((id) => typeof id === "string")) {
+    approvalDocument = JSON.parse(approvalBytes.toString("utf8"));
+    if (!Array.isArray(approvalDocument.approved_motif_ids) ||
+        !approvalDocument.approved_motif_ids.every((id) => typeof id === "string") ||
+        new Set(approvalDocument.approved_motif_ids).size !== approvalDocument.approved_motif_ids.length) {
       throw new Error("Prüffreigabe ungültig.");
     }
-    approved = new Set(document.approved_motif_ids);
+    approved = new Set(approvalDocument.approved_motif_ids);
     approvalSha256 = sha256(approvalBytes);
   }
+  const reviewSelection = options.approvedOnly ? selectApprovedReview(plan,
+    JSON.parse(await readFile(SOURCE_INVENTORY, "utf8")), approvalDocument) : null;
   const eligible = plan.entries.filter((item) => !item.needs_review || approved.has(item.motif_id));
-  const selected = options.all ? eligible : eligible.slice(0, options.limit);
+  const selected = options.approvedOnly ? reviewSelection :
+    options.all ? eligible : eligible.slice(0, options.limit);
   if (!selected.length) throw new Error("Keine Motive für diese Auswahl vorhanden.");
-  const selection = options.all ? "all_eligible" : `first_${options.limit}`;
+  const selection = options.approvedOnly ? "approved_review_only" :
+    options.all ? "all_eligible" : `first_${options.limit}`;
   const planSha256 = sha256(planBytes);
   const fingerprint = selectionFingerprint(planSha256, approvalSha256, options, selected);
-  const reportPath = path.join(OUTPUT_DIR, options.all ? "preflight-all.json" : `preflight-${options.limit}.json`);
+  const reportPath = path.join(OUTPUT_DIR, options.approvedOnly ? "preflight-approved-review.json" :
+    options.all ? "preflight-all.json" : `preflight-${options.limit}.json`);
   console.log(`Zugeordnet: ${plan.entries.length}; bereit: ${eligible.length}; ausgewählt: ${selected.length}; ` +
     `offen: ${plan.unresolved.length}; Qualitätsprüfung offen: ${plan.entries.length - eligible.length}.`);
   if (!options.upload) {
@@ -291,6 +344,7 @@ async function main() {
   const storage = new S3Client({
     region: "auto",
     endpoint,
+    forcePathStyle: true,
     credentials: {
       accessKeyId: r2.NEW_R2_ACCESS_KEY_ID,
       secretAccessKey: r2.NEW_R2_SECRET_ACCESS_KEY,
@@ -340,7 +394,8 @@ async function main() {
       not_selected: eligible.length - selected.length,
     },
     entries };
-  const file = path.join(OUTPUT_DIR, options.all ? "manifest.json" : `manifest-${selected.length}.json`);
+  const file = path.join(OUTPUT_DIR, options.approvedOnly ? "manifest-approved-review.json" :
+    options.all ? "manifest.json" : `manifest-${selected.length}.json`);
   await writeJsonAtomic(file, manifest);
   console.log(`R2-Upload und HEAD-Prüfung abgeschlossen. Importmanifest: ${file}`);
 }

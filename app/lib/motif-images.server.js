@@ -1,7 +1,11 @@
 import sharp from "sharp";
+import {
+  MAX_INPUT_PIXELS,
+  MAX_MASTER_SIDE_PX,
+  motifResolutionMessage,
+  visibleMotifBounds,
+} from "./motif-quality.js";
 
-const MAX_SIDE = 2000;
-const MAX_INPUT_PIXELS = 40_000_000;
 const MIME_BY_FORMAT = {
   png: "image/png",
   jpeg: "image/jpeg",
@@ -26,15 +30,31 @@ export async function buildMotifImages(source, contentType) {
     throw new Error("Die hochgeladene Datei ist kein gültiges PNG-, JPG- oder WebP-Bild.");
   }
 
-  const resizedMaster = Math.max(metadata.width, metadata.height) > MAX_SIDE;
+  const resizedMaster = Math.max(metadata.width, metadata.height) > MAX_MASTER_SIDE_PX;
   const master = resizedMaster
     ? await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS })
       .autoOrient()
-      .resize(MAX_SIDE, MAX_SIDE, { fit: "inside", withoutEnlargement: true })
+      .resize(MAX_MASTER_SIDE_PX, MAX_MASTER_SIDE_PX, { fit: "inside", withoutEnlargement: true })
       .keepIccProfile()
       .toFormat(metadata.format, masterOptions(metadata.format))
       .toBuffer()
     : input;
+
+  const { data, info } = await sharp(master, { limitInputPixels: MAX_INPUT_PIXELS })
+    .autoOrient()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.channels !== 4) {
+    throw new Error("Die sichtbare Motivfläche konnte nicht geprüft werden.");
+  }
+  const visible = visibleMotifBounds(data, info.width, info.height);
+  const resolutionError = motifResolutionMessage(visible.width, visible.height);
+  if (resolutionError) {
+    const error = new Error(resolutionError);
+    error.code = "MOTIF_RESOLUTION";
+    throw error;
+  }
 
   const variants = {};
   for (const [name, maxSide] of [["thumbnail", 300], ["preview", 900]]) {
@@ -49,5 +69,5 @@ export async function buildMotifImages(source, contentType) {
     variants[name] = data;
   }
 
-  return { master, resizedMaster, variants };
+  return { master, resizedMaster, visible, variants };
 }

@@ -5,8 +5,9 @@ Die einmalige Importseite der bereits installierten Shopify-App stellt deren
 Admin-Sitzung für die Umschaltung bereit; ein lokaler Admin-Token wird nicht
 benötigt. Das heruntergeladene
 `baurelia-designer-main.zip` diente nur als Abgleich mit dem aktuellen Quellcode und
-darf nicht über das Arbeitsverzeichnis entpackt werden. Alte R2-Objekte bleiben als
-Rollback-Möglichkeit erhalten; neue Master erhalten versionierte Schlüssel. Der
+darf nicht über das Arbeitsverzeichnis entpackt werden. Neue Master erhalten
+versionierte Schlüssel. Die im Ziel-Bucket ersetzten alten Dateien wurden nach
+der erfolgreichen Shopify-Umschaltung am 25.10.2026 entfernt. Der
 Shopify-Schritt ändert ausschließlich die drei Bild-Felder bestehender Metaobjekte,
 nicht deren ID, Handle, Kategorie, Reihenfolge oder Aktiv-Status.
 
@@ -100,3 +101,44 @@ Motive je Kategorie und die Druck-PDFs kontrollieren.
 Die 74 Qualitätsfälle und 212 ungeklärten Zuordnungen bleiben eine separate
 manuelle Aufgabe. Bloßes Hochrechnen repariert keine bereits verlorenen Details
 oder fehlerhafte Transparenz.
+
+## Freigabe der 74 Qualitätsfälle (25.10.2026)
+
+Der Nutzer hat sieben Motive aus der Prüfliste ausdrücklich ausgeschlossen:
+`motorrad-13`, `fuchs-34`, `fuchs-35`, `fuchs-36`, `fuchs-10`, `fuchs-12`
+und `fussball-14`. Von den übrigen 67 besitzen 53 eine eindeutige Zuordnung
+zu einem bestehenden Shopify-Metaobjekt. Nur diese 53 stehen in
+`../r2-speicher-vergleich/outputs/motif-import/review-approval-20261025.json`
+unter `approved_motif_ids`. Die 14 weiteren stehen dort getrennt unter
+`approved_without_safe_shopify_target`; sie dürfen nicht auf ähnlich benannte
+`.1`-Metaobjekte umgebogen werden.
+
+Der getrennte Lauf für die 53 überschreibt weder `preflight-all.json` noch
+`manifest.json`:
+
+```powershell
+node scripts/motif-import/stage.mjs --approved-only --approve-review "..\r2-speicher-vergleich\outputs\motif-import\review-approval-20261025.json"
+node scripts/motif-import/stage.mjs --approved-only --approve-review "..\r2-speicher-vergleich\outputs\motif-import\review-approval-20261025.json" --upload
+```
+
+Am 25.10.2026 bestand die Offline-Vorprüfung für alle 53; danach wurden
+53 Master-PNGs und je 53 Thumbnail-/Preview-WebPs in R2 hochgeladen und per
+HEAD auf Größe, Content-Type und SHA-256-Metadaten geprüft. Das Ergebnis ist
+`../r2-speicher-vergleich/outputs/motif-import/manifest-approved-review.json`.
+Der aktuelle Shopify-Katalog vom 25.10.2026 bestätigt die Umschaltung aller
+53 sowie der 948 Motive im Gesamtmanifest. Die 14 nicht zugeordneten Motive
+benötigen weiterhin einen separaten Neuanlage- oder eindeutigen
+Zuordnungsprozess.
+
+## Entfernen der ersetzten Dateien (25.10.2026)
+
+`cleanup-old.mjs` hat die beiden Manifeste gegen den aktuellen öffentlichen
+Shopify-Katalog und die R2-Objektliste geprüft. Vor der Löschung wurden alle
+3'003 neuen Druck- und Vorschaudateien erneut per `HEAD` auf Größe,
+Content-Type und SHA-256-Metadaten kontrolliert. Danach wurden ausschließlich
+die 1'001 alten Druckbilder und je 1'001 alte Thumbnails und Previews aus
+dem **neuen** R2-Bucket entfernt: insgesamt 3'003 Objekte bzw. 2'638'701'533
+Bytes (2,46 GiB). Eine erneute Bucket-Liste bestätigte, dass keiner der
+geplanten alten Schlüssel noch vorhanden ist. Der alte R2-Projekt-Bucket und
+die lokalen Quelldateien wurden nicht verändert. Die genaue Schlüsselliste
+liegt in `../r2-speicher-vergleich/outputs/motif-import/old-asset-cleanup-plan.json`.

@@ -12,6 +12,7 @@ import {
 } from "../lib/motif-records";
 import {
   completeMotifImages,
+  completeNewMotifImages,
   createMotifUpload,
   motifWithCurrentPublicUrls,
   verifyMotifUpload,
@@ -85,7 +86,15 @@ export const action = async ({ request }) => {
       );
       const alreadyCompleted = findMotifByStorageKey(categoryMotifs, key);
       if (alreadyCompleted) {
-        if (key.startsWith("motifs-v2/")) await completeMotifImages(key);
+        if (key.startsWith("motifs-v2/")) {
+          try {
+            await completeMotifImages(key);
+          } catch (error) {
+            // An older, already registered motif is not a new upload. Leave it
+            // untouched even if it would fail today's minimum-resolution rule.
+            if (error.code !== "MOTIF_RESOLUTION") throw error;
+          }
+        }
         return Response.json({
           ok: true,
           motif: motifWithCurrentPublicUrls(alreadyCompleted),
@@ -110,14 +119,19 @@ export const action = async ({ request }) => {
         .slice(0, 2)
         .join("-");
       const handle = `${slug || "motiv"}-${uniqueSuffix}`;
-      const { imageUrl, thumbnailUrl } = await completeMotifImages(key);
+      let images;
+      try {
+        images = await completeNewMotifImages(key);
+      } catch (error) {
+        throw new Error(`${originalFilename || name}: ${error.message}`);
+      }
       const motif = await upsertMetaobject(admin, "motifs", handle, {
         name,
         slug: slug || handle,
         category: category.id,
         category_handle: categoryHandle,
-        image_url: imageUrl,
-        thumbnail_url: thumbnailUrl,
+        image_url: images.imageUrl,
+        thumbnail_url: images.thumbnailUrl,
         r2_key: key,
         original_filename: originalFilename,
         alt_text: altText,

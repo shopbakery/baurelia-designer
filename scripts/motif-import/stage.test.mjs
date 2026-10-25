@@ -6,14 +6,37 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { objectKeys, parseArgs, prepareItem, selectionFingerprint,
-  validatePlan, verifyPreflightReport } from "./stage.mjs";
+  selectApprovedReview, validatePlan, verifyPreflightReport } from "./stage.mjs";
 
 test("requires an explicit batch size or all", () => {
   assert.throws(() => parseArgs([]));
   assert.throws(() => parseArgs(["--all", "--limit", "10"]));
+  assert.throws(() => parseArgs(["--all", "--approved-only"]));
+  assert.throws(() => parseArgs(["--approved-only"]));
   assert.deepEqual(parseArgs(["--limit", "10"]), {
-    upload: false, limit: 10, all: false, approve: null,
+    upload: false, limit: 10, all: false, approvedOnly: false, approve: null,
   });
+  assert.deepEqual(parseArgs(["--approved-only", "--approve-review", "approval.json"]), {
+    upload: false, limit: null, all: false, approvedOnly: true, approve: "approval.json",
+  });
+});
+
+test("approved review selection preserves the seven explicit exclusions and requires a full partition", () => {
+  const excluded = ["motorrad-13", "fuchs-34", "fuchs-35", "fuchs-36",
+    "fuchs-10", "fuchs-12", "fussball-14"];
+  const plan = { entries: [{ motif_id: "tiger-13", needs_review: true }] };
+  const inventory = { schema: 1, items: ["tiger-13", "dino-41", ...excluded]
+    .map((motif_id) => ({ motif_id, needs_review: true })) };
+  const approval = { schema: 1, approved_motif_ids: ["tiger-13"],
+    approved_without_safe_shopify_target: ["dino-41"], excluded_motif_ids: excluded };
+  assert.deepEqual(selectApprovedReview(plan, inventory, approval), plan.entries);
+  assert.throws(() => selectApprovedReview(plan, inventory,
+    { ...approval, approved_motif_ids: ["tiger-13", "fuchs-34"],
+      excluded_motif_ids: excluded.filter((id) => id !== "fuchs-34") }), /sieben/);
+  assert.throws(() => selectApprovedReview(plan, inventory,
+    { ...approval, approved_without_safe_shopify_target: [] }), /Qualitätsprüfliste/);
+  assert.throws(() => selectApprovedReview(plan, inventory,
+    { ...approval, approved_motif_ids: ["tiger-13", "tiger-13"] }), /Doppelte/);
 });
 
 test("same source produces stable versioned master and variants", () => {

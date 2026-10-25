@@ -73,6 +73,7 @@ async function main() {
         original_filename: motif.original_filename,
         r2_key: motif.r2_key,
         image_url: motif.image_url,
+        thumbnail_url: motif.thumbnail_url,
         active: motif.active,
       });
     }
