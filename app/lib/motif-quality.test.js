@@ -21,9 +21,9 @@ test("a fully transparent image has no printable area", () => {
   assert.match(motifResolutionMessage(0, 0), /vollständig transparent/);
 });
 
-test("the minimum visible long edge is exactly 1500px", () => {
-  assert.match(motifResolutionMessage(1499, 900), /1499 px/);
-  assert.equal(motifResolutionMessage(1500, 900), "");
+test("the minimum visible long edge is exactly 1400px", () => {
+  assert.match(motifResolutionMessage(1399, 900), /1399 px/);
+  assert.equal(motifResolutionMessage(1400, 900), "");
   assert.deepEqual(resizedMotifDimensions(4000, 2000), {
     width: 2000, height: 1000,
   });

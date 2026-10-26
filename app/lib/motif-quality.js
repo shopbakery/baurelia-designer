@@ -1,4 +1,4 @@
-export const MIN_VISIBLE_LONG_EDGE_PX = 1500;
+export const MIN_VISIBLE_LONG_EDGE_PX = 1400;
 export const MAX_MASTER_SIDE_PX = 2000;
 export const MAX_INPUT_PIXELS = 40_000_000;
 export const VISIBLE_ALPHA_THRESHOLD = 16;

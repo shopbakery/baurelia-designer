@@ -232,7 +232,7 @@ test("completion resizes the master, creates both variants, and can be retried",
 test("a newly uploaded low-resolution master is removed before variants or a Shopify record", async () => {
   const key = "motifs-v2/zahnfee/49a34a27-50a4-484a-9a17-504d57dfe11e-small.png";
   const source = await sharp({
-    create: { width: 1499, height: 900, channels: 4, background: "#ff0000ff" },
+    create: { width: 1399, height: 900, channels: 4, background: "#ff0000ff" },
   }).png().toBuffer();
   const objects = new Map([[key, source]]);
   const commands = [];

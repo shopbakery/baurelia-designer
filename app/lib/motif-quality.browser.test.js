@@ -2,17 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { inspectMotifFile } from "./motif-quality.browser.js";
 
-test("the browser rejects an opaque image below 1500px before upload", async () => {
+test("the browser rejects an opaque image below 1400px before upload", async () => {
   const previous = globalThis.createImageBitmap;
   let closed = false;
   globalThis.createImageBitmap = async () => ({
-    width: 1499,
+    width: 1399,
     height: 900,
     close: () => { closed = true; },
   });
   try {
     const result = await inspectMotifFile({ type: "image/jpeg" });
-    assert.match(result.error, /1499 px/);
+    assert.match(result.error, /1399 px/);
     assert.equal(closed, true);
   } finally {
     globalThis.createImageBitmap = previous;
@@ -46,7 +46,7 @@ test("the browser measures transparent content rather than canvas size", async (
   try {
     const result = await inspectMotifFile({ type: "image/png" });
     assert.deepEqual([result.visibleWidth, result.visibleHeight], [1400, 800]);
-    assert.match(result.error, /1400 px/);
+    assert.equal(result.error, "");
   } finally {
     globalThis.createImageBitmap = previousBitmap;
     globalThis.document = previousDocument;

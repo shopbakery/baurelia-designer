@@ -47,28 +47,28 @@ test("qualifying masters are copied byte-for-byte and variants are not enlarged"
   }
 });
 
-test("the 1500px boundary is inclusive and a smaller visible motif is rejected", async () => {
+test("the 1400px boundary is inclusive and a smaller visible motif is rejected", async () => {
   const accepted = await sharp({
-    create: { width: 1500, height: 750, channels: 4, background: "#ff0000ff" },
+    create: { width: 1400, height: 750, channels: 4, background: "#ff0000ff" },
   }).png().toBuffer();
-  assert.equal((await buildMotifImages(accepted, "image/png")).visible.width, 1500);
+  assert.equal((await buildMotifImages(accepted, "image/png")).visible.width, 1400);
 
   const tooSmall = await sharp({
-    create: { width: 1499, height: 750, channels: 4, background: "#ff0000ff" },
+    create: { width: 1399, height: 750, channels: 4, background: "#ff0000ff" },
   }).png().toBuffer();
   await assert.rejects(buildMotifImages(tooSmall, "image/png"), (error) =>
-    error.code === "MOTIF_RESOLUTION" && /1499 px/.test(error.message));
+    error.code === "MOTIF_RESOLUTION" && /1399 px/.test(error.message));
 });
 
 test("transparent canvas padding cannot disguise an undersized motif", async () => {
   const visible = await sharp({
-    create: { width: 1400, height: 800, channels: 4, background: "#ff0000ff" },
+    create: { width: 1399, height: 800, channels: 4, background: "#ff0000ff" },
   }).png().toBuffer();
   const padded = await sharp({
     create: { width: 2000, height: 2000, channels: 4, background: "#00000000" },
   }).composite([{ input: visible, left: 300, top: 600 }]).png().toBuffer();
   await assert.rejects(buildMotifImages(padded, "image/png"), (error) =>
-    error.code === "MOTIF_RESOLUTION" && /1400 px/.test(error.message));
+    error.code === "MOTIF_RESOLUTION" && /1399 px/.test(error.message));
 });
 
 test("quality is checked after shrinking the print master to 2000px", async () => {
