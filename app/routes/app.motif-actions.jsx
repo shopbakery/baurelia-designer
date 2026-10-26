@@ -9,20 +9,7 @@ import {
   deleteMotifAssets,
 } from "../lib/r2.server";
 import { findSharedMotifReferences } from "../lib/motif-records";
-
-const motifValues = (motif, sortOrder = motif.sort_order) => ({
-  name: motif.name || motif.displayName,
-  slug: motif.slug,
-  category: motif.category,
-  category_handle: motif.category_handle,
-  image_url: motif.image_url,
-  thumbnail_url: motif.thumbnail_url,
-  r2_key: motif.r2_key,
-  original_filename: motif.original_filename,
-  alt_text: motif.alt_text,
-  sort_order: sortOrder,
-  active: motif.active !== false,
-});
+import { planActiveMotifMove } from "../lib/motif-position";
 
 const byStoredOrder = (left, right) =>
   Number(left.sort_order || 0) - Number(right.sort_order || 0) ||
@@ -93,12 +80,72 @@ export const action = async ({ request }) => {
             admin,
             "motifs",
             motif.handle,
-            motifValues(motif, nextOrder),
+            { sort_order: nextOrder },
           );
         }),
       );
 
       return Response.json({ ok: true, intent });
+    }
+
+    if (intent === "move-to-position") {
+      const categoryHandle = String(formData.get("categoryHandle") || "").trim();
+      const handle = String(formData.get("handle") || "").trim();
+      const positionInput = String(formData.get("position") || "").trim();
+      if (!categoryHandle || !handle || !/^[1-9]\d*$/.test(positionInput)) {
+        throw new Error("Bitte wähle ein Motiv und eine gültige Position aus.");
+      }
+
+      const motifs = (
+        await listAllMetaobjects(
+          admin,
+          "motifs",
+          `fields.category_handle:${categoryHandle}`,
+        )
+      ).filter((motif) => motif.category_handle === categoryHandle);
+      const plan = planActiveMotifMove(motifs, handle, Number(positionInput));
+
+      // Keep large cross-page moves within a small number of concurrent API calls.
+      for (let offset = 0; offset < plan.updates.length; offset += 5) {
+        await Promise.all(
+          plan.updates.slice(offset, offset + 5).map(({ motif, sortOrder }) =>
+            upsertMetaobject(
+              admin,
+              "motifs",
+              motif.handle,
+              { sort_order: sortOrder },
+            ),
+          ),
+        );
+      }
+
+      if (plan.updates.length) {
+        const savedMotifs = (
+          await listAllMetaobjects(
+            admin,
+            "motifs",
+            `fields.category_handle:${categoryHandle}`,
+          )
+        ).filter((motif) => motif.category_handle === categoryHandle);
+        const savedActiveHandles = savedMotifs
+          .sort(byStoredOrder)
+          .filter((motif) => motif.active !== false)
+          .map((motif) => motif.handle);
+        const expectedActiveHandles = plan.ordered
+          .filter((motif) => motif.active !== false)
+          .map((motif) => motif.handle);
+        if (JSON.stringify(savedActiveHandles) !== JSON.stringify(expectedActiveHandles)) {
+          throw new Error(
+            "Die neue Reihenfolge konnte nicht bestätigt werden. Bitte lade die Motivliste neu und prüfe die Position.",
+          );
+        }
+      }
+
+      return Response.json({
+        ok: true,
+        intent,
+        position: plan.targetPosition,
+      });
     }
 
     if (intent === "delete") {

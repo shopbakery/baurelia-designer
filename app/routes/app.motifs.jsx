@@ -4,6 +4,7 @@ import {
   Form,
   Link,
   useLoaderData,
+  useNavigate,
   useRevalidator,
 } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -75,6 +76,7 @@ export const loader = async ({ request }) => {
       }
       return {
         ...motifWithCurrentPublicUrls(motif),
+        active_position: motif.active !== false ? position : null,
         display_label: motifDisplayLabel(
           motif,
           categoryNames.get(categoryHandle),
@@ -119,6 +121,7 @@ export const loader = async ({ request }) => {
     })),
     totalCount: preparedMotifs.length,
     filteredCount: filtered.length,
+    categoryActiveCount: category ? positionByCategory.get(category) || 0 : 0,
     query,
     category,
     status,
@@ -191,7 +194,7 @@ const putFile = (uploadUrl, file, onProgress) =>
     request.send(file);
   });
 
-function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
+function UploadModal({ categories, initialCategory, multiple, onUploaded, onUploadFinished }) {
   const shopify = useAppBridge();
   const [files, setFiles] = useState([]);
   const [fileChecks, setFileChecks] = useState([]);
@@ -321,6 +324,7 @@ function UploadModal({ categories, initialCategory, multiple, onUploaded }) {
       );
       reset();
       document.getElementById("motif-upload-modal")?.hideOverlay();
+      onUploadFinished();
     } catch (uploadError) {
       if (files.length > 1 && completedCount > 0) {
         setFiles((currentFiles) => currentFiles.slice(completedCount));
@@ -532,17 +536,111 @@ function DeleteModal({ motif, onDeleted }) {
   );
 }
 
+function PositionModal({ motif, maxPosition, onMoved }) {
+  const shopify = useAppBridge();
+  const fieldRef = useRef(null);
+  const [moving, setMoving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    if (fieldRef.current) {
+      fieldRef.current.value = String(motif?.active_position || "");
+    }
+  }, [motif]);
+
+  const move = async () => {
+    if (!motif || moving) return;
+    const positionInput = String(fieldRef.current?.value || "").trim();
+    const position = Number(positionInput);
+    if (
+      !/^[1-9]\d*$/.test(positionInput) ||
+      !Number.isSafeInteger(position) ||
+      position > maxPosition
+    ) {
+      setError(`Bitte gib eine Position zwischen 1 und ${maxPosition} ein.`);
+      return;
+    }
+
+    setMoving(true);
+    setError("");
+    try {
+      await postMotifAction(shopify, {
+        intent: "move-to-position",
+        categoryHandle: motif.category_handle,
+        handle: motif.handle,
+        position,
+      });
+      document.getElementById("motif-position-modal")?.hideOverlay();
+      shopify.toast.show(`${motif.display_label || motif.name} ist jetzt auf Position ${position}.`);
+      onMoved(position);
+    } catch (moveError) {
+      setError(moveError.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  return (
+    <s-modal id="motif-position-modal" heading="Position ändern" size="base">
+      <s-stack direction="block" gap="base">
+        <s-text type="strong">{motif?.display_label || motif?.name || "Motiv"}</s-text>
+        <s-text color="subdued">
+          Aktuelle Position: {motif?.active_position || "–"}
+        </s-text>
+        <s-number-field
+          ref={fieldRef}
+          label="Neue Position"
+          min={1}
+          max={maxPosition}
+          step={1}
+          inputMode="numeric"
+          disabled={moving}
+        ></s-number-field>
+        <s-text color="subdued">
+          Innerhalb der Kategorie {motif?.category || motif?.category_handle || ""}
+          {` (1–${maxPosition})`}
+        </s-text>
+        {error && (
+          <s-banner heading="Position nicht geändert" tone="critical">
+            {error}
+          </s-banner>
+        )}
+      </s-stack>
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        loading={moving}
+        onClick={move}
+      >
+        Speichern
+      </s-button>
+      <s-button
+        slot="secondary-actions"
+        commandFor="motif-position-modal"
+        command="--hide"
+        disabled={moving}
+      >
+        Abbrechen
+      </s-button>
+    </s-modal>
+  );
+}
+
 export default function Motifs() {
   const data = useLoaderData();
   const shopify = useAppBridge();
+  const navigate = useNavigate();
   const revalidator = useRevalidator();
   const [multiple, setMultiple] = useState(false);
   const [busyHandle, setBusyHandle] = useState("");
   const [actionError, setActionError] = useState("");
   const [selectedMotif, setSelectedMotif] = useState(null);
+  const [positionMotif, setPositionMotif] = useState(null);
   const [visibleItems, setVisibleItems] = useState(data.items);
   const [totalCount, setTotalCount] = useState(data.totalCount);
   const [filteredCount, setFilteredCount] = useState(data.filteredCount);
+  const [categoryActiveCount, setCategoryActiveCount] = useState(data.categoryActiveCount);
   const [draggedHandle, setDraggedHandle] = useState("");
   const [dragOverHandle, setDragOverHandle] = useState("");
   const categoryNames = useMemo(
@@ -560,7 +658,8 @@ export default function Motifs() {
     setVisibleItems(data.items);
     setTotalCount(data.totalCount);
     setFilteredCount(data.filteredCount);
-  }, [data.items, data.totalCount, data.filteredCount]);
+    setCategoryActiveCount(data.categoryActiveCount);
+  }, [data.items, data.totalCount, data.filteredCount, data.categoryActiveCount]);
 
   const pageCount = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
 
@@ -571,6 +670,11 @@ export default function Motifs() {
       canDeleteR2: Boolean(motif.r2_key),
     }));
     setTotalCount((currentCount) => currentCount + prepared.length);
+    if (data.category === uploadedCategoryHandle) {
+      setCategoryActiveCount((currentCount) =>
+        currentCount + prepared.filter((motif) => motif.active !== false).length,
+      );
+    }
 
     const categoryMatches =
       !data.category || data.category === uploadedCategoryHandle;
@@ -616,6 +720,10 @@ export default function Motifs() {
 
   const startDrag = (event, motif) => {
     if (!data.category || busyHandle) return;
+    if (event.target.closest?.("button, a, s-link")) {
+      event.preventDefault();
+      return;
+    }
     setDraggedHandle(motif.handle);
     setDragOverHandle(motif.handle);
     event.dataTransfer.effectAllowed = "move";
@@ -675,6 +783,28 @@ export default function Motifs() {
     requestAnimationFrame(() => {
       document.getElementById("motif-delete-modal")?.showOverlay();
     });
+  };
+
+  const openPosition = (motif) => {
+    // A fresh object also resets an unfinished entry when the same modal is reopened.
+    setPositionMotif({ ...motif });
+    requestAnimationFrame(() => {
+      document.getElementById("motif-position-modal")?.showOverlay();
+    });
+  };
+
+  const movedToPosition = (position) => {
+    setPositionMotif(null);
+    const destination = Math.ceil(position / PAGE_SIZE);
+    if (data.page === destination && data.status === "active" && !data.query) {
+      revalidator.revalidate();
+      return;
+    }
+    const params = new URLSearchParams({
+      category: data.category,
+      page: String(destination),
+    });
+    navigate(`/app/motifs?${params}`);
   };
 
   return (
@@ -744,7 +874,7 @@ export default function Motifs() {
             <s-text type="strong">{filteredCount} Treffer</s-text>
             <p className={styles.orderingHint}>
               {data.category
-                ? "Ziehe die Kacheln mit der Maus an die gewünschte Position. Die Reihenfolge wird automatisch gespeichert."
+                ? "Ziehe eine Kachel oder wähle „Position ändern“. Die Reihenfolge wird automatisch gespeichert."
                 : "Wähle eine Kategorie, um die Reihenfolge der Motive zu bearbeiten."}
             </p>
           </div>
@@ -763,10 +893,15 @@ export default function Motifs() {
           <div className={styles.motifGrid}>
             {visibleItems.map((motif, index) => {
               const absoluteIndex = (data.page - 1) * PAGE_SIZE + index;
+              const activePosition = motif.active_position || absoluteIndex + 1;
               const categoryName =
                 categoryNames.get(motif.category_handle) || motif.category_handle;
               const displayLabel = motif.display_label ||
-                motifDisplayLabel(motif, categoryName, absoluteIndex + 1);
+                motifDisplayLabel(motif, categoryName, activePosition);
+              const fullImageUrl = motif.image_url || motif.imageUrl || "";
+              const printFileUrl = /^https:\/\//i.test(fullImageUrl)
+                ? fullImageUrl
+                : "";
               const cardClassName = [
                 styles.motifCard,
                 draggedHandle === motif.handle ? styles.dragging : "",
@@ -817,16 +952,38 @@ export default function Motifs() {
                       {categoryName}
                     </span>
                     <span className={styles.fileName} title={motif.original_filename}>
-                      Datei: {motif.original_filename || "nicht verfügbar"}
+                      Datei: {printFileUrl ? (
+                        <s-link
+                          href={printFileUrl}
+                          target="_blank"
+                          accessibilityLabel={`Druckdatei ${motif.original_filename || displayLabel} in neuem Tab öffnen`}
+                          draggable={false}
+                          onDragStart={(event) => event.preventDefault()}
+                        >
+                          {motif.original_filename || "Bild öffnen"}
+                        </s-link>
+                      ) : motif.original_filename || "nicht verfügbar"}
                     </span>
                     <div className={styles.cardActions}>
                       {data.category ? (
-                        <div
-                          className={styles.dragHandle}
-                          title="Kachel ziehen und ablegen"
-                        >
-                          <span aria-hidden="true">⋮⋮</span>
-                          <span>Position {absoluteIndex + 1}</span>
+                        <div className={styles.positionControls}>
+                          <div
+                            className={styles.dragHandle}
+                            title="Kachel ziehen und ablegen"
+                          >
+                            <span aria-hidden="true">⋮⋮</span>
+                            <span>Position {activePosition}</span>
+                          </div>
+                          {motif.active !== false && (
+                            <button
+                              type="button"
+                              className={styles.positionButton}
+                              disabled={Boolean(busyHandle)}
+                              onClick={() => openPosition(motif)}
+                            >
+                              Position ändern
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <span />
@@ -867,6 +1024,7 @@ export default function Motifs() {
         initialCategory={data.category}
         multiple={multiple}
         onUploaded={addUploadedMotifs}
+        onUploadFinished={() => revalidator.revalidate()}
       />
       <DeleteModal
         motif={selectedMotif}
@@ -874,6 +1032,11 @@ export default function Motifs() {
           setSelectedMotif(null);
           revalidator.revalidate();
         }}
+      />
+      <PositionModal
+        motif={positionMotif}
+        maxPosition={categoryActiveCount}
+        onMoved={movedToPosition}
       />
     </s-page>
   );
